@@ -6,24 +6,44 @@ The error occurs because Render tries to run `npm run build` by default, but thi
 
 ## Solution 1: Configure Render Dashboard (Recommended)
 
-### Step 1: Go to Render Dashboard
-1. Open your service in Render dashboard
-2. Go to **Settings** tab
+### Step 1: Create/Configure Web Service (NOT Static Site!)
+**IMPORTANT:** Make sure you're creating a **Web Service**, not a Static Site!
 
-### Step 2: Update Build & Start Commands
+1. In Render dashboard, go to **New** → **Web Service**
+2. Connect your GitHub repository
+3. Select the repository and branch
+
+### Step 2: Configure Service Settings
+
+**Service Type:** Web Service (Node.js)
 
 **Build Command:**
 ```bash
-cd backend && npm install
+npm install
 ```
+
+**Note:** The `postinstall` script will automatically install backend dependencies. If that fails, the build script will handle it.
 
 **Start Command:**
 ```bash
-cd backend && npm start
+npm start
 ```
+
+**Alternative Build Command (if postinstall fails):**
+```bash
+npm install
+npm run build
+```
+
+**Note:** Render doesn't allow `&&` in commands, so if you need to run both, use the alternative approach above or configure it as two separate build steps.
 
 **Root Directory:**
 Leave empty (or set to `/`)
+
+**Publish Directory:**
+⚠️ **MUST BE EMPTY** - Do NOT set this to anything! This field is for static sites only.
+
+**Note:** The root `package.json` now has scripts that handle the backend automatically. The `postinstall` script will install backend dependencies, and `start` will run the backend server.
 
 ### Step 3: Set Environment Variables
 
@@ -108,8 +128,14 @@ After deployment:
 
 ## Common Issues
 
-### Issue 1: "Cannot find module"
-**Fix:** Make sure build command is `cd backend && npm install`
+### Issue 1: "Publish directory npm start does not exist!"
+**Fix:** 
+- Make sure you created a **Web Service**, not a Static Site
+- Go to Settings → **Publish Directory** should be **EMPTY** (not "npm start")
+- If it's set to "npm start", clear it completely
+
+### Issue 2: "Cannot find module"
+**Fix:** Make sure build command is `npm install` and postinstall script runs automatically
 
 ### Issue 2: "Port already in use"
 **Fix:** Use `process.env.PORT` in your code, don't hardcode port
