@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "form-data": "^4.0.4",
+    "node-fetch": "^2.7.0",
+    "sqlite3": "^5.1.7",
+    "http-server": "^14.1.1"
+  },
+  "scripts": {
+    "serve": "http-server -p 3000 -o"
+  }
+}
