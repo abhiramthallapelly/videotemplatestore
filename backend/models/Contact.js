@@ -1,0 +1,37 @@
+const mongoose = require('mongoose');
+
+const contactSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    required: true,
+    lowercase: true,
+    trim: true
+  },
+  message: {
+    type: String,
+    required: true
+  },
+  subject: {
+    type: String,
+    trim: true
+  },
+  is_read: {
+    type: Boolean,
+    default: false
+  }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+contactSchema.index({ is_read: 1 });
+contactSchema.index({ created_at: -1 });
+
+module.exports = mongoose.model('Contact', contactSchema);
+

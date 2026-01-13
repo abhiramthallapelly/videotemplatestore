@@ -1,94 +1,85 @@
 const express = require('express');
-const db = require('../config/db');
+const User = require('../models/User');
+const Purchase = require('../models/Purchase');
+const Download = require('../models/Download');
+const Wishlist = require('../models/Wishlist');
+const Notification = require('../models/Notification');
 const router = express.Router();
 
 const { authenticateToken } = require('../middleware/auth');
 
 // Get user dashboard data
-router.get('/dashboard', authenticateToken, (req, res) => {
+router.get('/dashboard', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
 
     // Get user info
-    db.get('SELECT id, username, email, full_name, created_at FROM users WHERE id = ?', [userId], (err, user) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
+    const user = await User.findById(userId)
+      .select('username email full_name createdAt')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Get purchase history
+    const purchases = await Purchase.find({
+      user_id: userId,
+      payment_status: 'completed'
+    })
+    .populate('project_id', 'title image_path file_path')
+    .sort({ createdAt: -1 })
+    .lean();
+
+    // Get download history
+    const downloads = await Download.find({ user_id: userId })
+      .populate('project_id', 'title image_path file_path is_free')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    // Get wishlist count
+    const wishlistCount = await Wishlist.countDocuments({ user_id: userId });
+
+    // Get statistics
+    const totalDownloads = await Download.countDocuments({ user_id: userId });
+    const totalPurchases = await Purchase.countDocuments({
+      user_id: userId,
+      payment_status: 'completed'
+    });
+    const totalSpentResult = await Purchase.aggregate([
+      { $match: { user_id: userId, payment_status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalSpent = totalSpentResult.length > 0 ? totalSpentResult[0].total : 0;
+
+    res.json({
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email,
+        full_name: user.full_name,
+        created_at: user.createdAt
+      },
+      purchases: purchases.map(p => ({
+        ...p.project_id,
+        id: p.project_id._id.toString(),
+        amount: p.amount,
+        payment_status: p.payment_status,
+        created_at: p.createdAt
+      })),
+      downloads: downloads.map(d => ({
+        ...d.project_id,
+        id: d.project_id._id.toString(),
+        download_type: d.download_type,
+        created_at: d.createdAt
+      })),
+      wishlistCount,
+      statistics: {
+        totalDownloads,
+        totalPurchases,
+        totalSpent
       }
-
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      // Get purchase history
-      db.all(`
-        SELECT 
-          pu.*,
-          p.title,
-          p.image_path,
-          p.file_path
-        FROM purchases pu
-        JOIN projects p ON pu.project_id = p.id
-        WHERE pu.user_id = ? AND pu.payment_status = 'completed'
-        ORDER BY pu.created_at DESC
-      `, [userId], (err, purchases) => {
-        if (err) {
-          return res.status(500).json({ message: 'Database error' });
-        }
-
-        // Get download history
-        db.all(`
-          SELECT 
-            d.*,
-            p.title,
-            p.image_path,
-            p.file_path,
-            p.is_free
-          FROM downloads d
-          JOIN projects p ON d.project_id = p.id
-          WHERE d.user_id = ?
-          ORDER BY d.created_at DESC
-          LIMIT 50
-        `, [userId], (err, downloads) => {
-          if (err) {
-            return res.status(500).json({ message: 'Database error' });
-          }
-
-          // Get wishlist count
-          db.get('SELECT COUNT(*) as count FROM wishlist WHERE user_id = ?', [userId], (err, wishlist) => {
-            if (err) {
-              return res.status(500).json({ message: 'Database error' });
-            }
-
-            // Get statistics
-            db.get(`
-              SELECT 
-                COUNT(DISTINCT d.id) as total_downloads,
-                COUNT(DISTINCT pu.id) as total_purchases,
-                SUM(pu.amount) as total_spent
-              FROM users u
-              LEFT JOIN downloads d ON u.id = d.user_id
-              LEFT JOIN purchases pu ON u.id = pu.user_id AND pu.payment_status = 'completed'
-              WHERE u.id = ?
-            `, [userId], (err, stats) => {
-              if (err) {
-                return res.status(500).json({ message: 'Database error' });
-              }
-
-              res.json({
-                user,
-                purchases: purchases || [],
-                downloads: downloads || [],
-                wishlistCount: wishlist.count || 0,
-                statistics: {
-                  totalDownloads: stats.total_downloads || 0,
-                  totalPurchases: stats.total_purchases || 0,
-                  totalSpent: stats.total_spent || 0
-                }
-              });
-            });
-          });
-        });
-      });
     });
   } catch (error) {
     console.error('User dashboard error:', error);
@@ -97,27 +88,25 @@ router.get('/dashboard', authenticateToken, (req, res) => {
 });
 
 // Get user notifications
-router.get('/notifications', authenticateToken, (req, res) => {
+router.get('/notifications', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { unread } = req.query;
 
-    let query = 'SELECT * FROM notifications WHERE user_id = ?';
-    const params = [userId];
-
+    const query = { user_id: userId };
     if (unread === 'true') {
-      query += ' AND is_read = 0';
+      query.is_read = false;
     }
 
-    query += ' ORDER BY created_at DESC LIMIT 50';
+    const notifications = await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
 
-    db.all(query, params, (err, notifications) => {
-      if (err) {
-        return res.status(500).json({ message: 'Error fetching notifications' });
-      }
-
-      res.json(notifications);
-    });
+    res.json(notifications.map(n => ({
+      ...n,
+      id: n._id.toString()
+    })));
   } catch (error) {
     console.error('Get notifications error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -125,22 +114,22 @@ router.get('/notifications', authenticateToken, (req, res) => {
 });
 
 // Mark notification as read
-router.put('/notifications/:id/read', authenticateToken, (req, res) => {
+router.put('/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { id } = req.params;
 
-    db.run('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [id, userId], function(err) {
-      if (err) {
-        return res.status(500).json({ message: 'Error updating notification' });
-      }
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, user_id: userId },
+      { is_read: true },
+      { new: true }
+    );
 
-      if (this.changes === 0) {
-        return res.status(404).json({ message: 'Notification not found' });
-      }
+    if (!notification) {
+      return res.status(404).json({ message: 'Notification not found' });
+    }
 
-      res.json({ message: 'Notification marked as read' });
-    });
+    res.json({ message: 'Notification marked as read' });
   } catch (error) {
     console.error('Mark notification read error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -148,16 +137,18 @@ router.put('/notifications/:id/read', authenticateToken, (req, res) => {
 });
 
 // Mark all notifications as read
-router.put('/notifications/read-all', authenticateToken, (req, res) => {
+router.put('/notifications/read-all', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    db.run('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0', [userId], function(err) {
-      if (err) {
-        return res.status(500).json({ message: 'Error updating notifications' });
-      }
+    const result = await Notification.updateMany(
+      { user_id: userId, is_read: false },
+      { is_read: true }
+    );
 
-      res.json({ message: 'All notifications marked as read', updated: this.changes });
+    res.json({ 
+      message: 'All notifications marked as read', 
+      updated: result.modifiedCount 
     });
   } catch (error) {
     console.error('Mark all notifications read error:', error);
@@ -166,4 +157,3 @@ router.put('/notifications/read-all', authenticateToken, (req, res) => {
 });
 
 module.exports = router;
-

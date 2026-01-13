@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const User = require('../models/User');
 const { OAuth2Client } = require('google-auth-library');
 const { validateRegister, validateLogin } = require('../middleware/validator');
 const { authLimiter } = require('../middleware/rateLimiter');
@@ -39,55 +39,59 @@ router.post('/register', validateRegister, async (req, res) => {
     }
 
     // Check if user already exists
-    db.get('SELECT id FROM users WHERE username = ? OR email = ?', [username, email], async (err, user) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
+    const existingUser = await User.findOne({ 
+      $or: [{ username }, { email: email.toLowerCase() }] 
+    });
 
-      if (user) {
-        return res.status(400).json({ 
-          message: 'Username or email already exists' 
-        });
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 12);
-
-      // Create user
-      db.run('INSERT INTO users (username, email, password, full_name) VALUES (?, ?, ?, ?)', 
-        [username, email, hashedPassword, fullName], function(err) {
-        if (err) {
-          return res.status(500).json({ message: 'Error creating user' });
-        }
-
-        // Generate JWT token
-        const token = jwt.sign(
-          { userId: this.lastID, username, email },
-          process.env.JWT_SECRET || 'your-secret-key',
-          { expiresIn: '7d' }
-        );
-
-        // Send welcome email
-        const { sendWelcomeEmail } = require('../utils/email');
-        sendWelcomeEmail(email, fullName || username).catch(err => {
-          console.error('Error sending welcome email:', err);
-        });
-
-        res.status(201).json({
-          message: 'User registered successfully',
-          token,
-          user: {
-            id: this.lastID,
-            username,
-            email,
-            fullName
-          }
-        });
+    if (existingUser) {
+      return res.status(400).json({ 
+        message: 'Username or email already exists' 
       });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create user
+    const user = await User.create({
+      username,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      full_name: fullName,
+      auth_provider: 'local'
+    });
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user._id.toString(), username, email: user.email },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+
+    // Send welcome email
+    const { sendWelcomeEmail } = require('../utils/email');
+    sendWelcomeEmail(user.email, fullName || username).catch(err => {
+      console.error('Error sending welcome email:', err);
+    });
+
+    res.status(201).json({
+      message: 'User registered successfully',
+      token,
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email,
+        fullName: user.full_name
+      }
     });
 
   } catch (error) {
     console.error('Registration error:', error);
+    if (error.code === 11000) { // MongoDB duplicate key error
+      return res.status(400).json({ 
+        message: 'Username or email already exists' 
+      });
+    }
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -105,42 +109,51 @@ router.post('/login', validateLogin, async (req, res) => {
     }
 
     // Find user
-    db.get('SELECT * FROM users WHERE username = ? OR email = ?', [username, username], async (err, user) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
+    const user = await User.findOne({ 
+      $or: [{ username }, { email: username.toLowerCase() }] 
+    });
 
-      if (!user) {
-        return res.status(401).json({ 
-          message: 'Invalid credentials' 
-        });
-      }
-
-      // Check password
-      const isValidPassword = await bcrypt.compare(password, user.password);
-      if (!isValidPassword) {
-        return res.status(401).json({ 
-          message: 'Invalid credentials' 
-        });
-      }
-
-      // Generate JWT token
-      const token = jwt.sign(
-        { userId: user.id, username: user.username, email: user.email },
-        process.env.JWT_SECRET || 'your-secret-key',
-        { expiresIn: '7d' }
-      );
-
-      res.json({
-        message: 'Login successful',
-        token,
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          fullName: user.full_name
-        }
+    if (!user) {
+      return res.status(401).json({ 
+        message: 'Invalid credentials' 
       });
+    }
+
+    // Check if user has a password (OAuth users might not)
+    if (!user.password) {
+      return res.status(401).json({ 
+        message: 'Please sign in with your social account' 
+      });
+    }
+
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // Update last login
+    user.last_login = new Date();
+    await user.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user._id.toString(), username: user.username, email: user.email },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email,
+        fullName: user.full_name
+      }
     });
 
   } catch (error) {
@@ -150,19 +163,24 @@ router.post('/login', validateLogin, async (req, res) => {
 });
 
 // Get current user profile
-router.get('/profile', authenticateToken, (req, res) => {
+router.get('/profile', authenticateToken, async (req, res) => {
   try {
-    db.get('SELECT id, username, email, full_name, created_at FROM users WHERE id = ?', 
-      [req.user.userId], (err, user) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
+    const user = await User.findById(req.user.userId)
+      .select('username email full_name createdAt')
+      .lean();
 
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
 
-      res.json({ user });
+    res.json({ 
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email,
+        full_name: user.full_name,
+        created_at: user.createdAt
+      }
     });
   } catch (error) {
     console.error('Profile error:', error);
@@ -181,16 +199,22 @@ router.put('/profile', authenticateToken, async (req, res) => {
       });
     }
 
-    db.run('UPDATE users SET full_name = ?, email = ? WHERE id = ?', 
-      [fullName, email, req.user.userId], function(err) {
-      if (err) {
-        return res.status(500).json({ message: 'Error updating profile' });
-      }
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { full_name: fullName, email: email.toLowerCase() },
+      { new: true, runValidators: true }
+    );
 
-      res.json({ message: 'Profile updated successfully' });
-    });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ message: 'Profile updated successfully' });
   } catch (error) {
     console.error('Profile update error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email already in use' });
+    }
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -213,36 +237,34 @@ router.put('/change-password', authenticateToken, async (req, res) => {
     }
 
     // Get current user
-    db.get('SELECT password FROM users WHERE id = ?', [req.user.userId], async (err, user) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
+    const user = await User.findById(req.user.userId);
 
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
 
-      // Verify current password
-      const isValidPassword = await bcrypt.compare(currentPassword, user.password);
-      if (!isValidPassword) {
-        return res.status(401).json({ 
-          message: 'Current password is incorrect' 
-        });
-      }
-
-      // Hash new password
-      const hashedPassword = await bcrypt.hash(newPassword, 12);
-
-      // Update password
-      db.run('UPDATE users SET password = ? WHERE id = ?', 
-        [hashedPassword, req.user.userId], function(err) {
-        if (err) {
-          return res.status(500).json({ message: 'Error updating password' });
-        }
-
-        res.json({ message: 'Password changed successfully' });
+    if (!user.password) {
+      return res.status(400).json({ 
+        message: 'OAuth users cannot change password. Please use your social account to sign in.' 
       });
-    });
+    }
+
+    // Verify current password
+    const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ 
+        message: 'Current password is incorrect' 
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    user.password = hashedPassword;
+    await user.save();
+
+    res.json({ message: 'Password changed successfully' });
 
   } catch (error) {
     console.error('Password change error:', error);
@@ -350,7 +372,7 @@ router.get('/google/callback', async (req, res) => {
 
     const payload = ticket.getPayload();
     const googleId = payload.sub;
-    const email = payload.email;
+    const email = payload.email.toLowerCase();
     const fullName = payload.name;
     const profilePicture = payload.picture;
 
@@ -359,55 +381,59 @@ router.get('/google/callback', async (req, res) => {
     }
 
     // Check if user exists
-    db.get('SELECT * FROM users WHERE email = ? OR google_id = ?', [email, googleId], async (err, existingUser) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?error=database_error`);
-      }
-
-      if (existingUser) {
-        // Update existing user with Google info if needed
-        if (!existingUser.google_id) {
-          db.run('UPDATE users SET google_id = ?, auth_provider = ?, profile_picture = ? WHERE id = ?',
-            [googleId, 'google', profilePicture || null, existingUser.id]);
-        } else if (profilePicture && !existingUser.profile_picture) {
-          db.run('UPDATE users SET profile_picture = ? WHERE id = ?', [profilePicture, existingUser.id]);
-        }
-        
-        // Generate JWT token for existing user
-        const token = jwt.sign(
-          { userId: existingUser.id, email: existingUser.email, authProvider: 'google' },
-          process.env.JWT_SECRET || 'your-secret-key',
-          { expiresIn: '7d' }
-        );
-
-        // Redirect to frontend with token
-        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(existingUser.email)}&name=${encodeURIComponent(existingUser.full_name || existingUser.username || existingUser.email)}`);
-      } else {
-        // Create new user
-        const username = email.split('@')[0]; // Use email prefix as username
-        db.run(
-          'INSERT INTO users (email, username, full_name, auth_provider, google_id, profile_picture, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [email, username, fullName || username, 'google', googleId, profilePicture || null, 1],
-          function(insertErr) {
-            if (insertErr) {
-              console.error('Error creating user:', insertErr);
-              return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?error=user_creation_failed`);
-            }
-            
-            // Generate JWT token
-            const token = jwt.sign(
-              { userId: this.lastID, email, authProvider: 'google' },
-              process.env.JWT_SECRET || 'your-secret-key',
-              { expiresIn: '7d' }
-            );
-
-            // Redirect to frontend with token
-            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(email)}&name=${encodeURIComponent(fullName || username)}`);
-          }
-        );
-      }
+    let existingUser = await User.findOne({ 
+      $or: [{ email }, { google_id: googleId }] 
     });
+
+    if (existingUser) {
+      // Update existing user with Google info if needed
+      if (!existingUser.google_id) {
+        existingUser.google_id = googleId;
+        existingUser.auth_provider = 'google';
+        if (profilePicture) existingUser.profile_picture = profilePicture;
+        await existingUser.save();
+      } else if (profilePicture && !existingUser.profile_picture) {
+        existingUser.profile_picture = profilePicture;
+        await existingUser.save();
+      }
+      
+      // Update last login
+      existingUser.last_login = new Date();
+      await existingUser.save();
+      
+      // Generate JWT token for existing user
+      const token = jwt.sign(
+        { userId: existingUser._id.toString(), email: existingUser.email, authProvider: 'google' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '7d' }
+      );
+
+      // Redirect to frontend with token
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(existingUser.email)}&name=${encodeURIComponent(existingUser.full_name || existingUser.username || existingUser.email)}`);
+    } else {
+      // Create new user
+      const username = email.split('@')[0]; // Use email prefix as username
+      const newUser = await User.create({
+        email,
+        username,
+        full_name: fullName || username,
+        auth_provider: 'google',
+        google_id: googleId,
+        profile_picture: profilePicture || null,
+        is_verified: true,
+        last_login: new Date()
+      });
+      
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: newUser._id.toString(), email, authProvider: 'google' },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '7d' }
+      );
+
+      // Redirect to frontend with token
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(email)}&name=${encodeURIComponent(fullName || username)}`);
+    }
 
   } catch (error) {
     console.error('Google OAuth callback error:', error);

@@ -371,7 +371,7 @@ db.serialize(() => {
           } else {
             console.log('Added category column to projects table');
           }
-          });
+        });
       }
       
       // Add view_count column if it doesn't exist

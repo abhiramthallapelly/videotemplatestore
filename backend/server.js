@@ -28,9 +28,34 @@ const userRoutes = require('./routes/user');
 const backupRoutes = require('./routes/backup');
 const paymentsRoutes = require('./routes/payments');
 const { initEmailTransporter } = require('./utils/email');
+const { connectDB } = require('./config/mongodb');
+const Category = require('./models/Category');
 
 const app = express();
-const PORT = process.env.PORT || 5050;
+const PORT = process.env.PORT || 6060;
+
+// Connect to MongoDB
+connectDB().then(async () => {
+  // Seed default categories if they don't exist
+  const defaultCategories = [
+    { name: 'Video Templates', description: 'Premiere Pro, After Effects, and video editing templates', icon: '🎬' },
+    { name: 'Project Files', description: 'Complete project files for various editing software', icon: '📁' },
+    { name: 'Fonts', description: 'Typography and font collections', icon: '🔤' },
+    { name: 'Effects', description: 'Video effects, transitions, and presets', icon: '✨' },
+    { name: 'Graphics', description: 'Logos, overlays, and graphic elements', icon: '🎨' }
+  ];
+
+  for (const category of defaultCategories) {
+    await Category.findOneAndUpdate(
+      { name: category.name },
+      category,
+      { upsert: true, new: true }
+    );
+  }
+  logger.info('✅ Default categories ready');
+}).catch(err => {
+  logger.error('❌ Failed to connect to MongoDB:', err);
+});
 
 // Security middleware
 app.use(helmet({
@@ -130,11 +155,13 @@ app.use('/api/payments', apiLimiter, paymentsRoutes);
 // Health check route with database connection check
 app.get('/api/health', async (req, res) => {
   try {
-    const dbHealthy = await checkDatabaseConnection();
+    const mongoose = require('mongoose');
+    const dbHealthy = mongoose.connection.readyState === 1; // 1 = connected
     res.json({ 
       status: 'Backend is running!',
       environment: process.env.NODE_ENV || 'development',
       database: dbHealthy ? 'connected' : 'disconnected',
+      databaseType: 'MongoDB',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       memory: {
@@ -147,6 +174,7 @@ app.get('/api/health', async (req, res) => {
       status: 'Backend is running but database is unavailable',
       environment: process.env.NODE_ENV || 'development',
       database: 'disconnected',
+      databaseType: 'MongoDB',
       error: error.message,
       timestamp: new Date().toISOString()
     });
@@ -201,10 +229,14 @@ const server = app.listen(PORT, async () => {
   
   // Check database connection on startup
   try {
-    await checkDatabaseConnection();
-    logger.info('✅ Database connection verified');
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState === 1) {
+      logger.info('✅ MongoDB connection verified');
+    } else {
+      logger.warn('⚠️ MongoDB connection not ready');
+    }
   } catch (error) {
-    logger.error('❌ Database connection failed:', error);
+    logger.error('❌ Database connection check failed:', error);
   }
   
   // Initialize email transporter
@@ -223,37 +255,23 @@ server.on('error', (error) => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
+const shutdown = async (signal) => {
+  logger.info(`${signal} signal received: closing HTTP server`);
+  server.close(async () => {
     logger.info('HTTP server closed');
-    const db = require('./config/db');
-    db.close((err) => {
-      if (err) {
-        logger.error('Error closing database:', err);
-      } else {
-        logger.info('Database connection closed');
-      }
-      process.exit(0);
-    });
+    try {
+      const mongoose = require('mongoose');
+      await mongoose.connection.close();
+      logger.info('MongoDB connection closed');
+    } catch (err) {
+      logger.error('Error closing database:', err);
+    }
+    process.exit(0);
   });
-});
+};
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT signal received: closing HTTP server');
-  server.close(() => {
-    logger.info('HTTP server closed');
-    const db = require('./config/db');
-    db.close((err) => {
-      if (err) {
-        logger.error('Error closing database:', err);
-      } else {
-        logger.info('Database connection closed');
-      }
-      process.exit(0);
-    });
-  });
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
@@ -264,4 +282,4 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
   process.exit(1);
-}); 
+});

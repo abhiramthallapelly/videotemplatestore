@@ -1,67 +1,79 @@
 const express = require('express');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const User = require('../models/User');
 const router = express.Router();
 
 // Helper function to handle OAuth user creation/login
-function handleOAuthUser(provider, providerId, email, fullName, profilePicture, res) {
-  // Check if user exists by email or provider ID
-  const providerIdField = `${provider}_id`;
-  const query = `SELECT * FROM users WHERE email = ? OR ${providerIdField} = ?`;
-  
-  db.get(query, [email, providerId], async (err, existingUser) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?error=database_error`);
+async function handleOAuthUser(provider, providerId, email, fullName, profilePicture, res) {
+  try {
+    // Check if user exists by email or provider ID
+    const providerIdField = `${provider}_id`;
+    const query = {};
+    
+    if (email) {
+      query.$or = [{ email: email.toLowerCase() }];
     }
+    query[providerIdField] = providerId;
+    if (email) {
+      query.$or.push({ [providerIdField]: providerId });
+    }
+    
+    let existingUser = await User.findOne(query);
 
     if (existingUser) {
       // Update existing user with provider info if needed
       if (!existingUser[providerIdField]) {
-        db.run(`UPDATE users SET ${providerIdField} = ?, auth_provider = ?, profile_picture = ? WHERE id = ?`,
-          [providerId, provider, profilePicture || null, existingUser.id]);
+        existingUser[providerIdField] = providerId;
+        existingUser.auth_provider = provider;
+        if (profilePicture) existingUser.profile_picture = profilePicture;
       } else if (profilePicture && !existingUser.profile_picture) {
-        db.run('UPDATE users SET profile_picture = ? WHERE id = ?', [profilePicture, existingUser.id]);
+        existingUser.profile_picture = profilePicture;
       }
       
       // Update last login
-      db.run('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [existingUser.id]);
+      existingUser.last_login = new Date();
+      await existingUser.save();
       
       // Generate JWT token for existing user
       const token = jwt.sign(
-        { userId: existingUser.id, email: existingUser.email, authProvider: provider },
+        { userId: existingUser._id.toString(), email: existingUser.email || email, authProvider: provider },
         process.env.JWT_SECRET || 'your-secret-key',
         { expiresIn: '7d' }
       );
 
       // Redirect to frontend with token
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(existingUser.email)}&name=${encodeURIComponent(existingUser.full_name || existingUser.username || existingUser.email)}&provider=${provider}`);
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(existingUser.email || email || '')}&name=${encodeURIComponent(existingUser.full_name || existingUser.username || existingUser.email || fullName || 'User')}&provider=${provider}`);
     } else {
       // Create new user
       const username = email ? email.split('@')[0] : `${provider}_${providerId.substring(0, 8)}`;
-      db.run(
-        `INSERT INTO users (email, username, full_name, auth_provider, ${providerIdField}, profile_picture, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [email || `${username}@${provider}.oauth`, username, fullName || username, provider, providerId, profilePicture || null, 1],
-        function(insertErr) {
-          if (insertErr) {
-            console.error('Error creating user:', insertErr);
-            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?error=user_creation_failed`);
-          }
-          
-          // Generate JWT token
-          const token = jwt.sign(
-            { userId: this.lastID, email: email || `${username}@${provider}.oauth`, authProvider: provider },
-            process.env.JWT_SECRET || 'your-secret-key',
-            { expiresIn: '7d' }
-          );
-
-          // Redirect to frontend with token
-          return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(email || `${username}@${provider}.oauth`)}&name=${encodeURIComponent(fullName || username)}&provider=${provider}`);
-        }
+      const userEmail = email || `${username}@${provider}.oauth`;
+      
+      const newUser = await User.create({
+        email: userEmail.toLowerCase(),
+        username,
+        full_name: fullName || username,
+        auth_provider: provider,
+        [providerIdField]: providerId,
+        profile_picture: profilePicture || null,
+        is_verified: true,
+        last_login: new Date()
+      });
+      
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: newUser._id.toString(), email: userEmail, authProvider: provider },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '7d' }
       );
+
+      // Redirect to frontend with token
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?token=${token}&email=${encodeURIComponent(userEmail)}&name=${encodeURIComponent(fullName || username)}&provider=${provider}`);
     }
-  });
+  } catch (error) {
+    console.error('OAuth user handling error:', error);
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/store.html?error=database_error`);
+  }
 }
 
 // ==================== FACEBOOK OAUTH ====================
@@ -150,7 +162,7 @@ router.get('/facebook/callback', async (req, res) => {
 
       const userData = userResponse.data;
       const facebookId = userData.id;
-      const email = userData.email;
+      const email = userData.email ? userData.email.toLowerCase() : null;
       const fullName = userData.name;
       const profilePicture = userData.picture?.data?.url;
 
@@ -159,7 +171,7 @@ router.get('/facebook/callback', async (req, res) => {
       }
 
       // Handle user creation/login
-      handleOAuthUser('facebook', facebookId, email, fullName, profilePicture, res);
+      await handleOAuthUser('facebook', facebookId, email, fullName, profilePicture, res);
 
     } catch (error) {
       console.error('Facebook OAuth token exchange error:', error.response?.data || error.message);
@@ -272,13 +284,13 @@ router.get('/instagram/callback', async (req, res) => {
         const email = null;
 
         // Handle user creation/login
-        handleOAuthUser('instagram', instagramId, email, fullName, null, res);
+        await handleOAuthUser('instagram', instagramId, email, fullName, null, res);
 
       } catch (userError) {
         console.error('Instagram user info error:', userError.response?.data || userError.message);
         // Still proceed with basic info
         const fullName = `Instagram User ${instagramId.substring(0, 8)}`;
-        handleOAuthUser('instagram', instagramId, null, fullName, null, res);
+        await handleOAuthUser('instagram', instagramId, null, fullName, null, res);
       }
 
     } catch (error) {

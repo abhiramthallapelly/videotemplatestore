@@ -1,0 +1,17 @@
+SERVER_BOOT: loading server with NODE_ENV=development
+STRIPE_SECRET_KEY: xxxxxxxxx
+Google OAuth initialized successfully
+Email transporter initialized
+About to start server on port 5050
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"email":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"google_id":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"facebook_id":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"instagram_id":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"username":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"name":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:2236) [MONGOOSE] Warning: Duplicate schema index on {"code":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:2236) [MONGODB DRIVER] Warning: useNewUrlParser is a deprecated option: useNewUrlParser has no effect since Node.js Driver version 4.0.0 and will be removed in the next major version
+(node:2236) [MONGODB DRIVER] Warning: useUnifiedTopology is a deprecated option: useUnifiedTopology has no effect since Node.js Driver version 4.0.0 and will be removed in the next major version
+2026-01-09 00:15:22 [[31merror[39m]: ❌ Port 5050 is already in use. Please use a different port or stop the other process. {"service":"video-editing-store"}
+2026-01-09 00:15:22 [[31merror[39m]: ❌ Port 5050 is already in use. Please use a different port or stop the other process. {"service":"video-editing-store"}

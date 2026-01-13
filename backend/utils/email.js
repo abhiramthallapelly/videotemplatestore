@@ -1,4 +1,6 @@
 const nodemailer = require('nodemailer');
+const fs = require('fs');
+const path = require('path');
 
 // Email configuration
 let transporter = null;
@@ -38,10 +40,13 @@ async function sendEmail(to, subject, html, text) {
       text: text || html.replace(/<[^>]*>/g, ''), // Strip HTML for text version
       html
     });
-
+    const logLine = `[${new Date().toISOString()}] Email sent to ${to} subject="${subject}" messageId=${info.messageId}\n`;
+    try { fs.appendFileSync(path.join(__dirname, '..', 'logs', 'email.log'), logLine); } catch (e) { console.warn('Failed to write email log:', e); }
     console.log('Email sent:', info.messageId);
     return true;
   } catch (error) {
+    const errLine = `[${new Date().toISOString()}] Error sending email to ${to} subject="${subject}" error=${error && (error.message || error)}\n`;
+    try { fs.appendFileSync(path.join(__dirname, '..', 'logs', 'email.log'), errLine); } catch (e) { console.warn('Failed to write email log:', e); }
     console.error('Error sending email:', error);
     return false;
   }

@@ -1,82 +1,89 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const db = require('../config/db');
+const Project = require('../models/Project');
+const Category = require('../models/Category');
+const Purchase = require('../models/Purchase');
+const Download = require('../models/Download');
+const Coupon = require('../models/Coupon');
+const CouponUsage = require('../models/CouponUsage');
 const { authenticateToken } = require('../middleware/auth');
 const { validateSearch } = require('../middleware/validator');
 const router = express.Router();
 
 // Get all store items with categories and search
-router.get('/items', validateSearch, (req, res) => {
+router.get('/items', validateSearch, async (req, res) => {
   try {
     const { search, category, minPrice, maxPrice, sortBy, isFree } = req.query;
     
-    let query = 'SELECT p.*, c.name as category_name, c.icon as category_icon FROM projects p LEFT JOIN categories c ON COALESCE(p.category, \'template\') = c.name WHERE 1=1';
-    const params = [];
+    // Build MongoDB query
+    const query = {};
     
     // Search filter
     if (search) {
-      query += ' AND (p.title LIKE ? OR p.description LIKE ?)';
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm);
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
     }
     
     // Category filter
     if (category && category !== 'all') {
-      query += ' AND p.category = ?';
-      params.push(category);
+      query.category = category;
     }
     
     // Price filters
-    if (minPrice) {
-      query += ' AND p.price >= ?';
-      params.push(minPrice);
-    }
-    
-    if (maxPrice) {
-      query += ' AND p.price <= ?';
-      params.push(maxPrice);
+    if (minPrice || maxPrice) {
+      query.price = {};
+      if (minPrice) query.price.$gte = parseInt(minPrice);
+      if (maxPrice) query.price.$lte = parseInt(maxPrice);
     }
     
     // Free/Paid filter
     if (isFree === 'true') {
-      query += ' AND p.is_free = 1';
+      query.is_free = true;
     } else if (isFree === 'false') {
-      query += ' AND p.is_free = 0';
+      query.is_free = false;
     }
     
-    // Sorting
+    // Build sort object
+    let sort = { createdAt: -1 }; // Default: newest
     switch (sortBy) {
       case 'price_low':
-        query += ' ORDER BY p.price ASC';
+        sort = { price: 1 };
         break;
       case 'price_high':
-        query += ' ORDER BY p.price DESC';
+        sort = { price: -1 };
         break;
       case 'popular':
-        query += ' ORDER BY p.download_count DESC';
+        sort = { download_count: -1 };
         break;
       case 'newest':
       default:
-        query += ' ORDER BY p.created_at DESC';
+        sort = { createdAt: -1 };
         break;
     }
 
-    db.all(query, params, (err, items) => {
-      if (err) {
-        console.error('Error fetching store items:', err);
-        return res.status(500).json({ message: 'Error fetching store items', error: err.message });
-      }
-
-      // Transform the data to match expected format
-      const transformedItems = items.map(item => ({
-        ...item,
-        category_name: item.category_name || item.category || 'template',
-        category_icon: item.category_icon || '📁'
-      }));
-      
-      res.json(transformedItems);
+    const items = await Project.find(query).sort(sort).lean();
+    
+    // Get categories for enrichment
+    const categories = await Category.find().lean();
+    const categoryMap = {};
+    categories.forEach(cat => {
+      categoryMap[cat.name] = cat;
     });
+
+    // Transform the data to match expected format
+    const transformedItems = items.map(item => ({
+      ...item,
+      id: item._id.toString(),
+      category_name: categoryMap[item.category]?.name || item.category || 'template',
+      category_icon: categoryMap[item.category]?.icon || '📁',
+      created_at: item.createdAt,
+      updated_at: item.updatedAt
+    }));
+    
+    res.json(transformedItems);
   } catch (error) {
     console.error('Store items error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -84,16 +91,13 @@ router.get('/items', validateSearch, (req, res) => {
 });
 
 // Get store categories
-router.get('/categories', (req, res) => {
+router.get('/categories', async (req, res) => {
   try {
-    db.all('SELECT * FROM categories ORDER BY name', (err, categories) => {
-      if (err) {
-        console.error('Error fetching categories:', err);
-        return res.status(500).json({ message: 'Error fetching categories' });
-      }
-
-      res.json(categories);
-    });
+    const categories = await Category.find().sort({ name: 1 }).lean();
+    res.json(categories.map(cat => ({
+      ...cat,
+      id: cat._id.toString()
+    })));
   } catch (error) {
     console.error('Categories error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -101,27 +105,29 @@ router.get('/categories', (req, res) => {
 });
 
 // Get single store item
-router.get('/item/:id', (req, res) => {
+router.get('/item/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    db.get(`
-      SELECT p.*, c.name as category_name, c.icon as category_icon 
-      FROM projects p 
-      LEFT JOIN categories c ON p.category = c.name 
-      WHERE p.id = ?
-    `, [id], (err, item) => {
-      if (err) {
-        console.error('Error fetching item:', err);
-        return res.status(500).json({ message: 'Error fetching item' });
-      }
+    const item = await Project.findById(id).lean();
+    
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
 
-      if (!item) {
-        return res.status(404).json({ message: 'Item not found' });
-      }
+    // Get category info
+    const category = await Category.findOne({ name: item.category }).lean();
+    
+    const response = {
+      ...item,
+      id: item._id.toString(),
+      category_name: category?.name || item.category || 'template',
+      category_icon: category?.icon || '📁',
+      created_at: item.createdAt,
+      updated_at: item.updatedAt
+    };
 
-      res.json(item);
-    });
+    res.json(response);
   } catch (error) {
     console.error('Store item error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -129,7 +135,7 @@ router.get('/item/:id', (req, res) => {
 });
 
 // Download item (free or paid)
-router.post('/download/:id', authenticateToken, (req, res) => {
+router.post('/download/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
@@ -137,37 +143,29 @@ router.post('/download/:id', authenticateToken, (req, res) => {
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     // Get item details
-    db.get('SELECT * FROM projects WHERE id = ?', [id], (err, item) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
+    const item = await Project.findById(id);
+    
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
 
-      if (!item) {
-        return res.status(404).json({ message: 'Item not found' });
-      }
+    // Check if user has already purchased this item (if it's paid)
+    if (!item.is_free) {
+      const purchase = await Purchase.findOne({
+        user_id: userId,
+        project_id: id,
+        payment_status: 'completed'
+      });
 
-      // Check if user has already purchased this item (if it's paid)
-      if (!item.is_free) {
-        db.get('SELECT * FROM purchases WHERE user_id = ? AND project_id = ? AND payment_status = "completed"', 
-          [userId, id], (err, purchase) => {
-          if (err) {
-            return res.status(500).json({ message: 'Database error' });
-          }
-
-          if (!purchase) {
-            return res.status(403).json({ 
-              message: 'This item requires purchase before download' 
-            });
-          }
-
-          // Purchase verified, proceed with download
-          proceedWithDownload(item, id, userId, ipAddress, userAgent, res);
+      if (!purchase) {
+        return res.status(403).json({ 
+          message: 'This item requires purchase before download' 
         });
-      } else {
-        // Free item, proceed with download
-        proceedWithDownload(item, id, userId, ipAddress, userAgent, res);
       }
-    });
+    }
+
+    // Proceed with download
+    await proceedWithDownload(item, id, userId, ipAddress, userAgent, res);
 
   } catch (error) {
     console.error('Download error:', error);
@@ -176,9 +174,8 @@ router.post('/download/:id', authenticateToken, (req, res) => {
 });
 
 // Helper function to handle file download
-function proceedWithDownload(item, id, userId, ipAddress, userAgent, res) {
+async function proceedWithDownload(item, id, userId, ipAddress, userAgent, res) {
   // Check if file exists
-  // Files are stored in uploads directory, file_path contains just the filename
   const uploadsDir = path.join(__dirname, '../uploads');
   const filePath = path.join(uploadsDir, item.file_path);
   
@@ -213,15 +210,24 @@ function proceedWithDownload(item, id, userId, ipAddress, userAgent, res) {
   }
 
   // Record download
-  db.run('INSERT INTO downloads (user_id, project_id, download_type, ip_address, user_agent) VALUES (?, ?, ?, ?, ?)', 
-    [userId, id, item.is_free ? 'free' : 'paid', ipAddress, userAgent], function(err) {
-    if (err) {
-      console.error('Error recording download:', err);
-    }
-  });
+  try {
+    await Download.create({
+      user_id: userId,
+      project_id: id,
+      download_type: item.is_free ? 'free' : 'paid',
+      ip_address: ipAddress,
+      user_agent: userAgent
+    });
+  } catch (err) {
+    console.error('Error recording download:', err);
+  }
 
   // Update download count
-  db.run('UPDATE projects SET download_count = download_count + 1 WHERE id = ?', [id]);
+  try {
+    await Project.findByIdAndUpdate(id, { $inc: { download_count: 1 } });
+  } catch (err) {
+    console.error('Error updating download count:', err);
+  }
 
   // Send file for download
   res.download(filePath, path.basename(item.file_path), (err) => {
@@ -242,119 +248,95 @@ router.post('/purchase/:id', authenticateToken, async (req, res) => {
     const { paymentMethodId, couponCode } = req.body;
 
     // Get item details
-    db.get('SELECT * FROM projects WHERE id = ?', [id], (err, item) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
+    const item = await Project.findById(id);
+    
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
 
-      if (!item) {
-        return res.status(404).json({ message: 'Item not found' });
-      }
+    if (item.is_free) {
+      return res.status(400).json({ message: 'This item is free' });
+    }
 
-      if (item.is_free) {
-        return res.status(400).json({ message: 'This item is free' });
-      }
+    // Check if already purchased
+    const existingPurchase = await Purchase.findOne({
+      user_id: userId,
+      project_id: id,
+      payment_status: 'completed'
+    });
 
-      // Check if already purchased
-      db.get('SELECT * FROM purchases WHERE user_id = ? AND project_id = ? AND payment_status = "completed"', 
-        [userId, id], (err, existingPurchase) => {
-        if (err) {
-          return res.status(500).json({ message: 'Database error' });
-        }
+    if (existingPurchase) {
+      return res.status(400).json({ message: 'Item already purchased' });
+    }
 
-        if (existingPurchase) {
-          return res.status(400).json({ message: 'Item already purchased' });
-        }
+    // Calculate final price (with coupon if provided)
+    let finalPrice = item.price;
+    let discountAmount = 0;
+    let couponId = null;
 
-        // Calculate final price (with coupon if provided)
-        let finalPrice = item.price;
-        let discountAmount = 0;
-        let couponId = null;
-
-        // Helper function to record purchase
-        const recordPurchase = () => {
-          // Here you would integrate with Stripe for payment processing
-          // For now, we'll simulate a successful payment
-          
-          db.run('INSERT INTO purchases (user_id, project_id, amount, payment_status, stripe_payment_id) VALUES (?, ?, ?, ?, ?)', 
-            [userId, id, finalPrice, 'completed', 'simulated_payment_' + Date.now()], function(err) {
-            if (err) {
-              return res.status(500).json({ message: 'Error recording purchase' });
-            }
-
-            const purchaseId = this.lastID;
-
-            // Record coupon usage if coupon was applied
-            if (couponId && discountAmount > 0) {
-              // Increment used_count in coupons table
-              db.run('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?', [couponId], (err) => {
-                if (err) {
-                  console.error('Error updating coupon used_count:', err);
-                }
-              });
-              
-              // Record usage in coupon_usage table
-              db.run(
-                'INSERT INTO coupon_usage (coupon_id, user_id, purchase_id, discount_amount) VALUES (?, ?, ?, ?)',
-                [couponId, userId, purchaseId, discountAmount],
-                (err) => {
-                  if (err) {
-                    console.error('Error recording coupon usage:', err);
-                  }
-                }
-              );
-            }
-
-            res.json({ 
-              message: 'Purchase successful! You can now download this item.',
-              purchaseId: purchaseId,
-              originalAmount: item.price,
-              discountAmount: discountAmount,
-              finalAmount: finalPrice,
-              couponApplied: !!couponId
-            });
-          });
-        };
-
-        // Validate and apply coupon if provided
-        if (couponCode) {
-          db.get('SELECT * FROM coupons WHERE code = ? AND is_active = 1', [couponCode.toUpperCase()], (err, coupon) => {
-            if (err) {
-              console.error('Error checking coupon:', err);
-              // Continue without coupon
-              recordPurchase();
-              return;
-            }
-
-            if (coupon) {
-              const now = new Date();
-              // Check coupon validity
-              if ((!coupon.valid_from || new Date(coupon.valid_from) <= now) &&
-                  (!coupon.valid_until || new Date(coupon.valid_until) >= now) &&
-                  (!coupon.usage_limit || coupon.used_count < coupon.usage_limit) &&
-                  item.price >= coupon.min_purchase) {
-                
-                // Calculate discount
-                if (coupon.discount_type === 'percentage') {
-                  discountAmount = Math.round(item.price * coupon.discount_value / 100);
-                  if (coupon.max_discount && discountAmount > coupon.max_discount) {
-                    discountAmount = coupon.max_discount;
-                  }
-                } else {
-                  discountAmount = coupon.discount_value;
-                }
-                
-                finalPrice = Math.max(0, item.price - discountAmount);
-                couponId = coupon.id;
-              }
-            }
-            
-            recordPurchase();
-          });
-        } else {
-          recordPurchase();
-        }
+    // Validate and apply coupon if provided
+    if (couponCode) {
+      const coupon = await Coupon.findOne({ 
+        code: couponCode.toUpperCase(), 
+        is_active: true 
       });
+
+      if (coupon) {
+        const now = new Date();
+        // Check coupon validity
+        if ((!coupon.valid_from || new Date(coupon.valid_from) <= now) &&
+            (!coupon.valid_until || new Date(coupon.valid_until) >= now) &&
+            (!coupon.usage_limit || coupon.used_count < coupon.usage_limit) &&
+            item.price >= coupon.min_purchase) {
+          
+          // Calculate discount
+          if (coupon.discount_type === 'percentage') {
+            discountAmount = Math.round(item.price * coupon.discount_value / 100);
+            if (coupon.max_discount && discountAmount > coupon.max_discount) {
+              discountAmount = coupon.max_discount;
+            }
+          } else {
+            discountAmount = coupon.discount_value;
+          }
+          
+          finalPrice = Math.max(0, item.price - discountAmount);
+          couponId = coupon._id.toString();
+        }
+      }
+    }
+
+    // Record purchase
+    // Here you would integrate with Stripe for payment processing
+    // For now, we'll simulate a successful payment
+    const purchase = await Purchase.create({
+      user_id: userId,
+      project_id: id,
+      amount: finalPrice,
+      payment_status: 'completed',
+      stripe_payment_id: 'simulated_payment_' + Date.now()
+    });
+
+    // Record coupon usage if coupon was applied
+    if (couponId && discountAmount > 0) {
+      // Increment used_count in coupons table
+      await Coupon.findByIdAndUpdate(couponId, { $inc: { used_count: 1 } });
+      
+      // Record usage in coupon_usage table
+      await CouponUsage.create({
+        coupon_id: couponId,
+        user_id: userId,
+        purchase_id: purchase._id.toString(),
+        discount_amount: discountAmount
+      });
+    }
+
+    res.json({ 
+      message: 'Purchase successful! You can now download this item.',
+      purchaseId: purchase._id.toString(),
+      originalAmount: item.price,
+      discountAmount: discountAmount,
+      finalAmount: finalPrice,
+      couponApplied: !!couponId
     });
 
   } catch (error) {
@@ -364,24 +346,29 @@ router.post('/purchase/:id', authenticateToken, async (req, res) => {
 });
 
 // Get user's purchased items
-router.get('/my-purchases', authenticateToken, (req, res) => {
+router.get('/my-purchases', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    db.all(`
-      SELECT p.*, pu.amount, pu.payment_status, pu.created_at as purchase_date
-      FROM purchases pu
-      JOIN projects p ON pu.project_id = p.id
-      WHERE pu.user_id = ? AND pu.payment_status = 'completed'
-      ORDER BY pu.created_at DESC
-    `, [userId], (err, purchases) => {
-      if (err) {
-        console.error('Error fetching purchases:', err);
-        return res.status(500).json({ message: 'Error fetching purchases' });
-      }
+    const purchases = await Purchase.find({
+      user_id: userId,
+      payment_status: 'completed'
+    })
+    .populate('project_id')
+    .sort({ createdAt: -1 })
+    .lean();
 
-      res.json(purchases);
-    });
+    const result = purchases.map(purchase => ({
+      ...purchase.project_id,
+      id: purchase.project_id._id.toString(),
+      amount: purchase.amount,
+      payment_status: purchase.payment_status,
+      purchase_date: purchase.createdAt,
+      created_at: purchase.project_id.createdAt,
+      updated_at: purchase.project_id.updatedAt
+    }));
+
+    res.json(result);
   } catch (error) {
     console.error('My purchases error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -389,24 +376,25 @@ router.get('/my-purchases', authenticateToken, (req, res) => {
 });
 
 // Get user's download history
-router.get('/my-downloads', authenticateToken, (req, res) => {
+router.get('/my-downloads', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    db.all(`
-      SELECT p.*, d.download_type, d.created_at as download_date
-      FROM downloads d
-      JOIN projects p ON d.project_id = p.id
-      WHERE d.user_id = ?
-      ORDER BY d.created_at DESC
-    `, [userId], (err, downloads) => {
-      if (err) {
-        console.error('Error fetching downloads:', err);
-        return res.status(500).json({ message: 'Error fetching downloads' });
-      }
+    const downloads = await Download.find({ user_id: userId })
+      .populate('project_id')
+      .sort({ createdAt: -1 })
+      .lean();
 
-      res.json(downloads);
-    });
+    const result = downloads.map(download => ({
+      ...download.project_id,
+      id: download.project_id._id.toString(),
+      download_type: download.download_type,
+      download_date: download.createdAt,
+      created_at: download.project_id.createdAt,
+      updated_at: download.project_id.updatedAt
+    }));
+
+    res.json(result);
   } catch (error) {
     console.error('My downloads error:', error);
     res.status(500).json({ message: 'Server error' });

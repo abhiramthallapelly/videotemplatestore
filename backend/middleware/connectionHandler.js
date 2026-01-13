@@ -24,26 +24,27 @@ async function retryWithBackoff(fn, retries = MAX_RETRIES, delay = RETRY_DELAY) 
 /**
  * Database connection health check
  */
-function checkDatabaseConnection() {
-  return new Promise((resolve, reject) => {
-    const db = require('../config/db');
-    db.get('SELECT 1', (err) => {
-      if (err) {
-        reject(new Error(`Database connection failed: ${err.message}`));
-      } else {
-        resolve(true);
-      }
-    });
-  });
+async function checkDatabaseConnection() {
+  try {
+    const mongoose = require('mongoose');
+    // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+    if (mongoose.connection.readyState === 1) {
+      return true;
+    } else {
+      throw new Error(`MongoDB connection state: ${mongoose.connection.readyState}`);
+    }
+  } catch (error) {
+    throw new Error(`Database connection failed: ${error.message}`);
+  }
 }
 
 /**
  * Middleware to handle connection errors
  */
 const connectionErrorHandler = (err, req, res, next) => {
-  // Database connection errors
-  if (err.code === 'SQLITE_BUSY' || err.code === 'SQLITE_LOCKED') {
-    logger.error('Database locked or busy:', err);
+  // MongoDB connection errors
+  if (err.name === 'MongoServerError' || err.name === 'MongoNetworkError') {
+    logger.error('MongoDB connection error:', err);
     return res.status(503).json({
       success: false,
       message: 'Database is temporarily unavailable. Please try again in a moment.',
@@ -52,7 +53,7 @@ const connectionErrorHandler = (err, req, res, next) => {
   }
 
   // Network errors
-  if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+  if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND') {
     logger.error('Connection error:', err);
     return res.status(503).json({
       success: false,
