@@ -56,9 +56,5 @@ const couponSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes
-couponSchema.index({ code: 1 });
-couponSchema.index({ is_active: 1 });
-
 module.exports = mongoose.model('Coupon', couponSchema);
 

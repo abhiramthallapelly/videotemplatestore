@@ -89,7 +89,7 @@ router.get('/facebook', (req, res) => {
       });
     }
 
-    const redirectUri = encodeURIComponent(process.env.FACEBOOK_REDIRECT_URI || `http://localhost:5050/api/auth/facebook/callback`);
+    const redirectUri = encodeURIComponent(process.env.FACEBOOK_REDIRECT_URI || `http://localhost:3001/api/auth/facebook/callback`);
     const scope = 'email,public_profile';
     const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${process.env.FACEBOOK_APP_ID}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
 

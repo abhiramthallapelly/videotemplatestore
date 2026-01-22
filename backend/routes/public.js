@@ -7,6 +7,20 @@ console.log('STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY);
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const { validateContact, validateReview } = require('../middleware/validator');
+const { MongoClient } = require('mongodb'); // Correct MongoDB import
+const mongoose = require('mongoose'); // Use mongoose for MongoDB operations
+
+// Define the Review schema (if not already defined elsewhere)
+const reviewSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  message: String,
+  rating: Number,
+  created_at: { type: Date, default: Date.now },
+  timestamp: Date
+});
+
+const Review = mongoose.model('Review', reviewSchema); // Create the Review model
 
 const router = express.Router();
 
@@ -464,34 +478,25 @@ router.post('/review', validateReview, async (req, res) => {
 });
 
 // Get reviews from database and Google Sheets
-router.get('/reviews', (req, res) => {
+router.get('/reviews', async (req, res) => {
   try {
-    // Get reviews from database (show all reviews, ordered by newest first)
-    db.all(
-      'SELECT id, name, email, message, rating, created_at, timestamp FROM reviews ORDER BY created_at DESC LIMIT 200',
-      [],
-      (err, rows) => {
-        if (err) {
-          console.error('Database error:', err);
-          return res.status(500).json({ 
-            message: 'Failed to fetch reviews from database.' 
-          });
-        }
-        
-        // Format reviews
-        const reviews = rows.map(row => ({
-          id: row.id,
-          name: row.name,
-          email: row.email, // Can be filtered out in production if needed
-          message: row.message,
-          rating: row.rating,
-          timestamp: row.created_at || row.timestamp,
-          created_at: row.created_at || row.timestamp
-        }));
-        
-        res.json(reviews);
-      }
-    );
+    // Fetch reviews, ordered by newest first, limit to 200
+    const reviews = await Review.find()
+      .sort({ created_at: -1 })
+      .limit(200);
+
+    // Format reviews
+    const formattedReviews = reviews.map(row => ({
+      id: row._id,
+      name: row.name,
+      email: row.email, // Can be filtered out in production if needed
+      message: row.message,
+      rating: row.rating,
+      timestamp: row.created_at || row.timestamp,
+      created_at: row.created_at || row.timestamp
+    }));
+
+    res.json(formattedReviews);
   } catch (error) {
     console.error('Get reviews error:', error);
     res.status(500).json({ 
@@ -500,4 +505,4 @@ router.get('/reviews', (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;

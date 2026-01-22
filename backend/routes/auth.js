@@ -13,7 +13,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   googleClient = new OAuth2Client(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5050/api/auth/google/callback'
+    process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/google/callback'
   );
   console.log('Google OAuth initialized successfully');
 } else {
@@ -313,7 +313,7 @@ router.get('/google', (req, res) => {
 router.get('/google/status', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5050/api/auth/google/callback';
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/google/callback';
   
   const isConfigured = !!(clientId && clientSecret);
   const isValidClientId = clientId && clientId.includes('.apps.googleusercontent.com');

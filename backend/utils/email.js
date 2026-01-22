@@ -22,7 +22,7 @@ function initEmailTransporter() {
 }
 
 // Send email
-async function sendEmail(to, subject, html, text) {
+async function sendEmail(to = 'abhiramthallapelli95@gmail.com', subject, html, text) {
   if (!transporter) {
     initEmailTransporter();
   }

@@ -32,30 +32,130 @@ const { connectDB } = require('./config/mongodb');
 const Category = require('./models/Category');
 
 const app = express();
-const PORT = process.env.PORT || 6060;
+// Force the server to always use port 5050 for debugging
+const PORT = 5050;
 
-// Connect to MongoDB
-connectDB().then(async () => {
-  // Seed default categories if they don't exist
-  const defaultCategories = [
-    { name: 'Video Templates', description: 'Premiere Pro, After Effects, and video editing templates', icon: '🎬' },
-    { name: 'Project Files', description: 'Complete project files for various editing software', icon: '📁' },
-    { name: 'Fonts', description: 'Typography and font collections', icon: '🔤' },
-    { name: 'Effects', description: 'Video effects, transitions, and presets', icon: '✨' },
-    { name: 'Graphics', description: 'Logos, overlays, and graphic elements', icon: '🎨' }
-  ];
+// Log a warning if NODE_ENV is not set
+if (!process.env.NODE_ENV) {
+  logger.warn('NODE_ENV is not set. Defaulting to development mode.');
+}
 
-  for (const category of defaultCategories) {
-    await Category.findOneAndUpdate(
-      { name: category.name },
-      category,
-      { upsert: true, new: true }
-    );
+// Ensure ALLOWED_ORIGINS has a fallback in production
+if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+  logger.warn('ALLOWED_ORIGINS is not set. No origins will be allowed in production.');
+}
+
+// Initialize server startup
+const startServer = async () => {
+  try {
+    // Connect to MongoDB first
+    logger.info('🔄 Connecting to MongoDB...');
+    const conn = await connectDB();
+    logger.info(`✅ MongoDB connected successfully: ${conn.connection.host}`);
+    logger.info(`📊 Database: ${conn.connection.name}`);
+
+    // Seed default categories if they don't exist
+    try {
+      const defaultCategories = [
+        { name: 'Video Templates', description: 'Premiere Pro, After Effects, and video editing templates', icon: '🎬' },
+        { name: 'Project Files', description: 'Complete project files for various editing software', icon: '📁' },
+        { name: 'Fonts', description: 'Typography and font collections', icon: '🔤' },
+        { name: 'Effects', description: 'Video effects, transitions, and presets', icon: '✨' },
+        { name: 'Graphics', description: 'Logos, overlays, and graphic elements', icon: '🎨' }
+      ];
+
+      for (const category of defaultCategories) {
+        await Category.findOneAndUpdate(
+          { name: category.name },
+          category,
+          { upsert: true, new: true }
+        );
+      }
+      logger.info('✅ Default categories ready');
+    } catch (seedError) {
+      logger.warn('⚠️ Category seeding failed (non-critical):', seedError.message);
+    }
+
+    // Start the server after MongoDB is connected
+    startHttpServer();
+  } catch (error) {
+    logger.error('❌ Failed to connect to MongoDB:', error.message);
+    logger.error('💡 Please ensure MongoDB is running and MONGODB_URI is correctly configured');
+    logger.error('   Local MongoDB: mongod (or net start MongoDB on Windows)');
+    logger.error('   MongoDB Atlas: Check your connection string and network access');
+    
+    // In development, still start the server but warn about database
+    if (process.env.NODE_ENV === 'development') {
+      logger.warn('⚠️ Starting server without database connection (development mode)');
+      logger.warn('⚠️ Some features may not work until MongoDB is connected');
+      startHttpServer();
+    } else {
+      // In production, exit if database connection fails
+      logger.error('❌ Exiting due to database connection failure');
+      process.exit(1);
+    }
   }
-  logger.info('✅ Default categories ready');
-}).catch(err => {
-  logger.error('❌ Failed to connect to MongoDB:', err);
-});
+};
+
+// Start HTTP server
+const startHttpServer = () => {
+  console.log('About to start server on port', PORT);
+  const server = app.listen(PORT, () => {
+    logger.info(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    logger.info(`📊 Health check available at: http://localhost:${PORT}/api/health`);
+    
+    // Check database connection on startup
+    try {
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState === 1) {
+        logger.info('✅ MongoDB connection verified');
+      } else {
+        logger.warn('⚠️ MongoDB connection not ready');
+      }
+    } catch (error) {
+      logger.error('❌ Database connection check failed:', error);
+    }
+    
+    // Initialize email transporter
+    initEmailTransporter();
+  });
+
+  // Handle server errors
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.error(`❌ Port ${PORT} is already in use. Please use a different port or stop the other process.`);
+      process.exit(1);
+    } else {
+      logger.error('❌ Server error:', error);
+      process.exit(1);
+    }
+  });
+
+  // Graceful shutdown
+  const shutdown = async (signal) => {
+    logger.info(`${signal} signal received: logging signal only, server will not terminate.`);
+    // Commented out the termination logic for debugging purposes
+    // server.close(async () => {
+    //   logger.info('HTTP server closed');
+    //   try {
+    //     const mongoose = require('mongoose');
+    //     await mongoose.connection.close();
+    //     logger.info('MongoDB connection closed');
+    //   } catch (err) {
+    //     logger.error('Error closing database:', err);
+    //   }
+    //   process.exit(0);
+    // });
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => {
+    logger.info('SIGINT signal received: ignoring to prevent server shutdown.');
+  });
+};
+
+// Start the application
+startServer();
 
 // Security middleware
 app.use(helmet({
@@ -220,58 +320,6 @@ app.use(notFound);
 
 // Global error handler (must be absolutely last)
 app.use(errorHandler);
-
-// Start server with error handling
-console.log('About to start server on port', PORT);
-const server = app.listen(PORT, async () => {
-  logger.info(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-  logger.info(`📊 Health check available at: http://localhost:${PORT}/api/health`);
-  
-  // Check database connection on startup
-  try {
-    const mongoose = require('mongoose');
-    if (mongoose.connection.readyState === 1) {
-      logger.info('✅ MongoDB connection verified');
-    } else {
-      logger.warn('⚠️ MongoDB connection not ready');
-    }
-  } catch (error) {
-    logger.error('❌ Database connection check failed:', error);
-  }
-  
-  // Initialize email transporter
-  initEmailTransporter();
-});
-
-// Handle server errors
-server.on('error', (error) => {
-  if (error.code === 'EADDRINUSE') {
-    logger.error(`❌ Port ${PORT} is already in use. Please use a different port or stop the other process.`);
-    process.exit(1);
-  } else {
-    logger.error('❌ Server error:', error);
-    process.exit(1);
-  }
-});
-
-// Graceful shutdown
-const shutdown = async (signal) => {
-  logger.info(`${signal} signal received: closing HTTP server`);
-  server.close(async () => {
-    logger.info('HTTP server closed');
-    try {
-      const mongoose = require('mongoose');
-      await mongoose.connection.close();
-      logger.info('MongoDB connection closed');
-    } catch (err) {
-      logger.error('Error closing database:', err);
-    }
-    process.exit(0);
-  });
-};
-
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
