@@ -45,11 +45,16 @@ async function startServer() {
 
     await seedCategories();
     startHttpServer();
-  } catch (err) {
-    logger.error('❌ Startup failed:', err.message);
-    if (process.env.NODE_ENV === 'production') return;
-    startHttpServer(); // allow dev mode without DB
-  }
+  } 
+  catch (error) {
+  logger.error('❌ Failed to connect to MongoDB:', error.message);
+  logger.error('💡 Check MONGODB_URI in Render environment variables');
+
+  // ✅ ALWAYS start server on Render
+  logger.warn('⚠️ Starting server WITHOUT database (Render-safe mode)');
+  startHttpServer();
+}
+
 }
 
 // -------------------- HTTP SERVER --------------------
