@@ -34,10 +34,11 @@ const couponUsageRoutes = require('./routes/couponUsage');
 const app = express();
 
 /**
- * 🔑 Default development port. Tests and frontend expect 5050.
+ * 🔑 Default development port. Use 5000 for Replit.
  * ❌ Never hardcode ports in production; use env vars for deployments.
  */
-const PORT = process.env.PORT || 5050;
+const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
 
 /* =======================
    MIDDLEWARE
@@ -67,6 +68,14 @@ app.use(connectionErrorHandler);
 /* =======================
    STATIC FILES
 ======================= */
+
+// Add cache control for development
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, '..')));
@@ -107,14 +116,11 @@ app.get('/api/health', async (req, res) => {
 });
 
 /* =======================
-   ROOT
+   ROOT - Serve frontend
 ======================= */
 
 app.get('/', (req, res) => {
-  res.json({
-    message: 'Backend is running',
-    health: '/api/health'
-  });
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
 /* =======================
@@ -133,37 +139,40 @@ app.use(errorHandler);
 ======================= */
 
 async function startServer() {
-  try {
-    console.log('🔄 Connecting to MongoDB...');
-    await connectDB();
-    console.log('✅ MongoDB connected');
-
-    // Seed categories (safe)
-    const defaults = [
-      { name: 'Video Templates', icon: '🎬' },
-      { name: 'Project Files', icon: '📁' },
-      { name: 'Fonts', icon: '🔤' },
-      { name: 'Effects', icon: '✨' },
-      { name: 'Graphics', icon: '🎨' }
-    ];
-
-    for (const c of defaults) {
-      await Category.findOneAndUpdate({ name: c.name }, c, { upsert: true });
-    }
-
-  } catch (err) {
-    console.error('⚠️ MongoDB not connected (Render will continue)');
-    console.error(err.message);
-  }
-
-  const server = app.listen(PORT, () => {
-    console.log(`🚀 Server LIVE on port ${PORT}`);
+  // Start server first, then connect to MongoDB in background
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`🚀 Server LIVE on ${HOST}:${PORT}`);
     initEmailTransporter();
   });
 
   server.on('error', err => {
     console.error('SERVER ERROR:', err.message);
   });
+
+  // Connect to MongoDB in background (non-blocking)
+  (async () => {
+    try {
+      console.log('🔄 Connecting to MongoDB...');
+      await connectDB();
+      console.log('✅ MongoDB connected');
+
+      // Seed categories (safe)
+      const defaults = [
+        { name: 'Video Templates', icon: '🎬' },
+        { name: 'Project Files', icon: '📁' },
+        { name: 'Fonts', icon: '🔤' },
+        { name: 'Effects', icon: '✨' },
+        { name: 'Graphics', icon: '🎨' }
+      ];
+
+      for (const c of defaults) {
+        await Category.findOneAndUpdate({ name: c.name }, c, { upsert: true });
+      }
+    } catch (err) {
+      console.error('⚠️ MongoDB not connected - app will run with limited functionality');
+      console.error(err.message);
+    }
+  })();
 }
 
 startServer();
