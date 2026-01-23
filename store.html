@@ -872,8 +872,8 @@
   </div>
 
   <script>
-    // API Configuration - Backend server URL
-    const API_BASE_URL = 'http://localhost:5050';
+    // API Configuration - Use current origin for Replit compatibility
+    const API_BASE_URL = window.location.origin;
     
     let storeItems = [];
     let categories = [];
@@ -910,7 +910,7 @@
         await loadStoreItems();
       } catch (error) {
         console.error('Error loading store data:', error);
-        showError('Failed to load store data. Make sure the backend server is running on port 3001.');
+        showError('Failed to load store data. Please refresh the page or try again later.');
       }
     }
 
@@ -925,7 +925,7 @@
         renderStoreItems(storeItems);
       } catch (error) {
         console.error('Error loading store items:', error);
-          showError('Failed to load store items. Make sure the backend server is running on port 3001.');
+          showError('Failed to load store items. Please refresh the page or try again later.');
       }
     }
 
@@ -1141,7 +1141,7 @@
         }
       } catch (error) {
         console.error('Login error:', error);
-        showError('Login failed. Make sure the backend server is running on port 3001.');
+        showError('Login failed. Please check your credentials and try again.');
       } finally {
         submitBtn.textContent = originalText;
         submitBtn.disabled = false;
@@ -1185,7 +1185,7 @@
         }
       } catch (error) {
         console.error('Registration error:', error);
-        showError('Registration failed. Make sure the backend server is running on port 3001.');
+        showError('Registration failed. Please try again later.');
       } finally {
         submitBtn.textContent = originalText;
         submitBtn.disabled = false;

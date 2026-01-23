@@ -1,25 +1,16 @@
 const express = require('express');
-const db = require('../config/db');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const { validateContact, validateReview } = require('../middleware/validator');
-const { MongoClient } = require('mongodb'); // Correct MongoDB import
-const mongoose = require('mongoose'); // Use mongoose for MongoDB operations
+const mongoose = require('mongoose');
 
-// Define the Review schema (if not already defined elsewhere)
-const reviewSchema = new mongoose.Schema({
-  name: String,
-  email: String,
-  message: String,
-  rating: Number,
-  created_at: { type: Date, default: Date.now },
-  timestamp: Date
-});
-
-const Review = mongoose.model('Review', reviewSchema); // Create the Review model
+// Import MongoDB models
+const Contact = require('../models/Contact');
+const Review = require('../models/Review');
+const Project = require('../models/Project');
 
 const router = express.Router();
 
@@ -37,19 +28,52 @@ const getValidOrigin = (req) => {
 };
 
 // List all projects/templates (public)
-router.get('/projects', (req, res) => {
-  db.all('SELECT id, title, description, is_free, price, created_at, file_path, image_path FROM projects ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ message: 'Error fetching projects.' });
-    res.json(rows);
-  });
+router.get('/projects', async (req, res) => {
+  try {
+    const projects = await Project.find()
+      .select('title description is_free price createdAt file_path image_path')
+      .sort({ createdAt: -1 });
+    res.json(projects.map(p => ({
+      id: p._id,
+      title: p.title,
+      description: p.description,
+      is_free: p.is_free,
+      price: p.price,
+      created_at: p.createdAt,
+      file_path: p.file_path,
+      image_path: p.image_path
+    })));
+  } catch (err) {
+    console.error('Projects error:', err);
+    res.status(500).json({ message: 'Error fetching projects.' });
+  }
 });
 
 // List all templates specifically
-router.get('/templates', (req, res) => {
-  db.all('SELECT id, title, description, is_free, price, created_at, file_path, image_path FROM projects WHERE title LIKE "%template%" OR description LIKE "%template%" ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ message: 'Error fetching templates.' });
-    res.json(rows);
-  });
+router.get('/templates', async (req, res) => {
+  try {
+    const projects = await Project.find({
+      $or: [
+        { title: { $regex: 'template', $options: 'i' } },
+        { description: { $regex: 'template', $options: 'i' } }
+      ]
+    })
+      .select('title description is_free price createdAt file_path image_path')
+      .sort({ createdAt: -1 });
+    res.json(projects.map(p => ({
+      id: p._id,
+      title: p.title,
+      description: p.description,
+      is_free: p.is_free,
+      price: p.price,
+      created_at: p.createdAt,
+      file_path: p.file_path,
+      image_path: p.image_path
+    })));
+  } catch (err) {
+    console.error('Templates error:', err);
+    res.status(500).json({ message: 'Error fetching templates.' });
+  }
 });
 
 // Get cart items
@@ -60,7 +84,7 @@ router.get('/cart/:sessionId', (req, res) => {
 });
 
 // Add item to cart
-router.post('/cart/:sessionId/add', (req, res) => {
+router.post('/cart/:sessionId/add', async (req, res) => {
   const { sessionId } = req.params;
   const { projectId } = req.body;
   
@@ -68,21 +92,21 @@ router.post('/cart/:sessionId/add', (req, res) => {
     return res.status(400).json({ message: 'Project ID is required.' });
   }
   
-  db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
-    if (err) return res.status(500).json({ message: 'Error fetching project.' });
+  try {
+    const project = await Project.findById(projectId);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
     
     let cart = carts.get(sessionId) || [];
     
     // Check if item already exists in cart
-    const existingItem = cart.find(item => item.id === project.id);
+    const existingItem = cart.find(item => item.id === project._id.toString());
     if (existingItem) {
       return res.status(400).json({ message: 'Item already in cart.' });
     }
     
     // Add item to cart
     cart.push({
-      id: project.id,
+      id: project._id.toString(),
       title: project.title,
       description: project.description,
       price: project.price,
@@ -92,7 +116,10 @@ router.post('/cart/:sessionId/add', (req, res) => {
     
     carts.set(sessionId, cart);
     res.json({ message: 'Item added to cart', cart });
-  });
+  } catch (err) {
+    console.error('Cart add error:', err);
+    res.status(500).json({ message: 'Error fetching project.' });
+  }
 });
 
 // Remove item from cart
