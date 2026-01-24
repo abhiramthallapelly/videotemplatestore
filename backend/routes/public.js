@@ -374,17 +374,63 @@ router.post('/contact', validateContact, async (req, res) => {
     const { sendEmail } = require('../utils/email');
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       try {
+        // Escape HTML in user input and convert newlines to <br>
+        const escapeHtml = (text) => {
+          if (!text) return '';
+          return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;')
+            .replace(/\n/g, '<br>');
+        };
+        
+        const htmlMessage = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #00bfa6; color: white; padding: 20px; text-align: center; }
+              .content { padding: 20px; background: #f9f9f9; }
+              .field { margin-bottom: 15px; }
+              .label { font-weight: bold; color: #555; }
+              .message-box { background: white; padding: 15px; border-radius: 5px; margin-top: 10px; border-left: 4px solid #00bfa6; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>New Contact Form Submission</h1>
+              </div>
+              <div class="content">
+                <div class="field">
+                  <span class="label">Name:</span> ${escapeHtml(name)}
+                </div>
+                <div class="field">
+                  <span class="label">Email:</span> <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>
+                </div>
+                <div class="field">
+                  <span class="label">Subject:</span> ${escapeHtml(subject) || 'No Subject'}
+                </div>
+                <div class="field">
+                  <span class="label">Message:</span>
+                  <div class="message-box">
+                    ${escapeHtml(message)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </body>
+          </html>
+        `;
+        
         await sendEmail(
           process.env.EMAIL_USER,
           `New Contact Form Submission: ${subject || 'No Subject'}`,
-          `
-            <h2>New Contact Form Submission</h2>
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Subject:</strong> ${subject || 'No Subject'}</p>
-            <p><strong>Message:</strong></p>
-            <p>${message}</p>
-          `
+          htmlMessage
         );
         console.log('Contact email sent successfully');
       } catch (emailErr) {
