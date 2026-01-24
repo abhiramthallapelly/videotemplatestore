@@ -196,19 +196,16 @@ router.post('/cart/:sessionId/checkout', async (req, res) => {
 });
 
 // Download free file with forced download for all file types
-router.get('/download/:id', (req, res) => {
+router.get('/download/:id', async (req, res) => {
   const { id } = req.params;
-  db.get('SELECT * FROM projects WHERE id = ?', [id], (err, project) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ message: 'Database error.' });
-    }
+  try {
+    const project = await Project.findById(id);
     
     if (!project) {
       return res.status(404).json({ message: 'Project not found.' });
     }
     
-    if (project.is_free !== 1) {
+    if (!project.is_free) {
       return res.status(403).json({ message: 'This file is not free.' });
     }
     
@@ -233,42 +230,46 @@ router.get('/download/:id', (req, res) => {
         }
       }
     });
-  });
+  } catch (err) {
+    console.error('Database error:', err);
+    return res.status(500).json({ message: 'Database error.' });
+  }
 });
 
 // Create Stripe Checkout session for paid file
 router.post('/create-checkout-session', async (req, res) => {
   const { projectId } = req.body;
-  db.get('SELECT * FROM projects WHERE id = ?', [projectId], async (err, project) => {
+  try {
+    const project = await Project.findById(projectId);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
-    if (project.is_free === 1) return res.status(400).json({ message: 'This file is free.' });
-    try {
-      const origin = getValidOrigin(req);
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [{
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: project.title,
-              description: project.description,
-            },
-            unit_amount: project.price * 100, // price in cents
+    if (project.is_free) return res.status(400).json({ message: 'This file is free.' });
+    
+    const origin = getValidOrigin(req);
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: project.title,
+            description: project.description,
           },
-          quantity: 1,
-        }],
-        mode: 'payment',
-        success_url: `${origin}/download-success?session_id={CHECKOUT_SESSION_ID}&project_id=${project.id}`,
-        cancel_url: `${origin}/download-cancel`,
-        metadata: {
-          project_id: project.id
-        }
-      });
-      res.json({ url: session.url });
-    } catch (error) {
-      res.status(500).json({ message: 'Stripe session error.' });
-    }
-  });
+          unit_amount: project.price * 100, // price in cents
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${origin}/download-success?session_id={CHECKOUT_SESSION_ID}&project_id=${project._id}`,
+      cancel_url: `${origin}/download-cancel`,
+      metadata: {
+        project_id: project._id.toString()
+      }
+    });
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error('Stripe session error:', error);
+    res.status(500).json({ message: 'Stripe session error.' });
+  }
 });
 
 // Stripe webhook endpoint
@@ -302,39 +303,35 @@ router.get('/download-paid/:session_id', async (req, res) => {
       return res.status(403).json({ message: 'Payment not completed.' });
     }
     const projectId = session.metadata.project_id;
-    db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
+    const project = await Project.findById(projectId);
+    
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found.' });
+    }
+    
+    // Files are stored in uploads directory, file_path contains just the filename
+    const uploadsDir = path.join(__dirname, '../uploads');
+    const filePath = path.join(uploadsDir, project.file_path);
+    
+    if (!fs.existsSync(filePath)) {
+      console.error('File not found at path:', filePath);
+      console.error('Project file_path from DB:', project.file_path);
+      return res.status(404).json({ message: 'File not found. Please contact support.' });
+    }
+    
+    // Force download for all file types
+    res.setHeader('Content-Disposition', `attachment; filename="${project.file_path}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.download(filePath, project.file_path, (err) => {
       if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ message: 'Database error.' });
-      }
-      
-      if (!project) {
-        return res.status(404).json({ message: 'Project not found.' });
-      }
-      
-      // Files are stored in uploads directory, file_path contains just the filename
-      const uploadsDir = path.join(__dirname, '../uploads');
-      const filePath = path.join(uploadsDir, project.file_path);
-      
-      if (!fs.existsSync(filePath)) {
-        console.error('File not found at path:', filePath);
-        console.error('Project file_path from DB:', project.file_path);
-        return res.status(404).json({ message: 'File not found. Please contact support.' });
-      }
-      
-      // Force download for all file types
-      res.setHeader('Content-Disposition', `attachment; filename="${project.file_path}"`);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.download(filePath, project.file_path, (err) => {
-        if (err) {
-          console.error('Download error:', err);
-          if (!res.headersSent) {
-            res.status(500).json({ message: 'Error downloading file' });
-          }
+        console.error('Download error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error downloading file' });
         }
-      });
+      }
     });
   } catch (error) {
+    console.error('Download paid error:', error);
     res.status(400).json({ message: 'Invalid session.' });
   }
 });
@@ -359,35 +356,40 @@ router.post('/contact', validateContact, async (req, res) => {
       });
     }
     
-    // Store contact message in database
-    db.run(
-      'INSERT INTO contacts (name, email, message, subject) VALUES (?, ?, ?, ?)',
-      [name.trim(), email.trim(), message.trim(), subject ? subject.trim() : null],
-      function(err) {
-        if (err) {
-          console.error('Database error:', err);
-          // Continue even if database fails
-        } else {
-          console.log('Contact saved to database with ID:', this.lastID);
-        }
-      }
-    );
+    // Store contact message in MongoDB
+    try {
+      const contact = await Contact.create({
+        name: name.trim(),
+        email: email.trim(),
+        message: message.trim(),
+        subject: subject ? subject.trim() : null
+      });
+      console.log('Contact saved to database with ID:', contact._id);
+    } catch (dbErr) {
+      console.error('Database error:', dbErr);
+      // Continue even if database fails
+    }
     
     // Send email notification (if configured)
     const { sendEmail } = require('../utils/email');
-    if (process.env.EMAIL_USER) {
-      await sendEmail(
-        process.env.EMAIL_USER,
-        `New Contact Form Submission: ${subject || 'No Subject'}`,
-        `
-          <h2>New Contact Form Submission</h2>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Subject:</strong> ${subject || 'No Subject'}</p>
-          <p><strong>Message:</strong></p>
-          <p>${message}</p>
-        `
-      );
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      try {
+        await sendEmail(
+          process.env.EMAIL_USER,
+          `New Contact Form Submission: ${subject || 'No Subject'}`,
+          `
+            <h2>New Contact Form Submission</h2>
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Subject:</strong> ${subject || 'No Subject'}</p>
+            <p><strong>Message:</strong></p>
+            <p>${message}</p>
+          `
+        );
+        console.log('Contact email sent successfully');
+      } catch (emailErr) {
+        console.error('Email send error:', emailErr);
+      }
     }
     
     console.log('New Contact Form Submission:', {
@@ -443,23 +445,17 @@ router.post('/review', validateReview, async (req, res) => {
       name: name.trim(),
       email: email ? email.trim() : '',
       message: message.trim(),
-      rating: parseInt(rating),
-      timestamp: new Date().toISOString()
+      rating: parseInt(rating)
     };
     
-    // Save to database (SQLite)
-    db.run(
-      'INSERT INTO reviews (name, email, message, rating, created_at) VALUES (?, ?, ?, ?, ?)',
-      [reviewData.name, reviewData.email, reviewData.message, reviewData.rating, reviewData.timestamp],
-      function(err) {
-        if (err) {
-          console.error('Database error:', err);
-          // Continue even if database fails, try Google Sheets
-        } else {
-          console.log('Review saved to database with ID:', this.lastID);
-        }
-      }
-    );
+    // Save to MongoDB
+    try {
+      const review = await Review.create(reviewData);
+      console.log('Review saved to database with ID:', review._id);
+    } catch (dbErr) {
+      console.error('Database error:', dbErr);
+      // Continue even if database fails, try Google Sheets
+    }
     
     // Save to Google Sheets if URL is configured
     const googleSheetsUrl = process.env.GOOGLE_SHEETS_WEB_APP_URL;
