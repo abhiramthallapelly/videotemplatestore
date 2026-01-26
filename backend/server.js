@@ -12,11 +12,9 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { connectionErrorHandler, timeoutHandler } = require('./middleware/connectionHandler');
 const { apiLimiter, authLimiter, storeLimiter } = require('./middleware/rateLimiter');
 
-const { connectDB } = require('./config/mongodb');
+const { pool } = require('./config/postgres');
 const { initEmailTransporter } = require('./utils/email');
-const Category = require('./models/Category');
 
-// Routes
 const adminRoutes = require('./routes/admin');
 const publicRoutes = require('./routes/public');
 const authRoutes = require('./routes/auth');
@@ -33,19 +31,10 @@ const couponUsageRoutes = require('./routes/couponUsage');
 
 const app = express();
 
-// Trust proxy for Replit environment (needed for rate limiting and secure cookies)
 app.set('trust proxy', 1);
 
-/**
- * 🔑 Default development port. Use 5000 for Replit.
- * ❌ Never hardcode ports in production; use env vars for deployments.
- */
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
-
-/* =======================
-   MIDDLEWARE
-======================= */
 
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -68,11 +57,6 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 app.use(connectionErrorHandler);
 
-/* =======================
-   STATIC FILES
-======================= */
-
-// Add cache control for development
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
@@ -82,10 +66,6 @@ app.use((req, res, next) => {
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, '..')));
-
-/* =======================
-   ROUTES
-======================= */
 
 const authLimiterMiddleware =
   process.env.NODE_ENV === 'production' ? authLimiter : (req, res, next) => next();
@@ -104,41 +84,31 @@ app.use('/api/user', apiLimiter, userRoutes);
 app.use('/api/backup', apiLimiter, backupRoutes);
 app.use('/api/payments', apiLimiter, paymentsRoutes);
 
-/* =======================
-   HEALTH CHECK
-======================= */
-
 app.get('/api/health', async (req, res) => {
-  const mongoose = require('mongoose');
+  let dbStatus = 'disconnected';
+  try {
+    await pool.query('SELECT 1');
+    dbStatus = 'connected';
+  } catch (err) {
+    dbStatus = 'disconnected';
+  }
+  
   res.json({
     status: 'ok',
     env: process.env.NODE_ENV || 'development',
-    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    db: dbStatus,
     uptime: process.uptime()
   });
 });
-
-/* =======================
-   ROOT - Serve frontend
-======================= */
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
-/* =======================
-   ERROR HANDLERS
-======================= */
-
 app.use(notFound);
 app.use(errorHandler);
 
-/* =======================
-   SERVER START
-======================= */
-
 async function startServer() {
-  // Start server first, then connect to MongoDB in background
   const server = app.listen(PORT, HOST, () => {
     console.log(`🚀 Server LIVE on ${HOST}:${PORT}`);
     initEmailTransporter();
@@ -148,37 +118,15 @@ async function startServer() {
     console.error('SERVER ERROR:', err.message);
   });
 
-  // Connect to MongoDB in background (non-blocking)
-  (async () => {
-    try {
-      console.log('🔄 Connecting to MongoDB...');
-      await connectDB();
-      console.log('✅ MongoDB connected');
-
-      // Seed categories (safe)
-      const defaults = [
-        { name: 'Video Templates', icon: '🎬' },
-        { name: 'Project Files', icon: '📁' },
-        { name: 'Fonts', icon: '🔤' },
-        { name: 'Effects', icon: '✨' },
-        { name: 'Graphics', icon: '🎨' }
-      ];
-
-      for (const c of defaults) {
-        await Category.findOneAndUpdate({ name: c.name }, c, { upsert: true });
-      }
-    } catch (err) {
-      console.error('⚠️ MongoDB not connected - app will run with limited functionality');
-      console.error(err.message);
-    }
-  })();
+  try {
+    await pool.query('SELECT 1');
+    console.log('✅ PostgreSQL connected');
+  } catch (err) {
+    console.error('⚠️ PostgreSQL connection issue:', err.message);
+  }
 }
 
 startServer();
-
-/* =======================
-   SAFETY
-======================= */
 
 process.on('unhandledRejection', err => {
   console.error('Unhandled Rejection:', err);

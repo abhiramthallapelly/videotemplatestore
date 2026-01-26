@@ -5,12 +5,10 @@ require('dotenv').config();
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
 const { validateContact, validateReview } = require('../middleware/validator');
-const mongoose = require('mongoose');
 
-// Import MongoDB models
-const Contact = require('../models/Contact');
-const Review = require('../models/Review');
-const Project = require('../models/Project');
+const Contact = require('../models-pg/Contact');
+const Review = require('../models-pg/Review');
+const Project = require('../models-pg/Project');
 
 const router = express.Router();
 
