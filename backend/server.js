@@ -127,10 +127,6 @@ app.get('/', (req, res) => {
    ERROR HANDLERS
 ======================= */
 
-app.use('/api/*', (req, res) => {
-  res.status(404).json({ error: 'API route not found' });
-});
-
 app.use(notFound);
 app.use(errorHandler);
 

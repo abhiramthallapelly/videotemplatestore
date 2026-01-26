@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../config/db');
 const router = express.Router();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || '');
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 const { authenticateToken } = require('../middleware/auth');
 
 // Create a Stripe Checkout session for purchasing a project

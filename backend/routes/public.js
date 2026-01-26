@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
 const { validateContact, validateReview } = require('../middleware/validator');
 const mongoose = require('mongoose');
@@ -164,6 +164,10 @@ router.post('/cart/:sessionId/checkout', async (req, res) => {
     });
   }
   
+  if (!stripe) {
+    return res.status(503).json({ message: 'Payment system not configured. Please contact support.' });
+  }
+  
   try {
     const lineItems = paidItems.map(item => ({
       price_data: {
@@ -240,6 +244,10 @@ router.get('/download/:id', async (req, res) => {
 
 // Create Stripe Checkout session for paid file
 router.post('/create-checkout-session', async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ message: 'Payment system not configured. Please contact support.' });
+  }
+  
   const { projectId } = req.body;
   try {
     const project = await Project.findById(projectId);
@@ -276,6 +284,10 @@ router.post('/create-checkout-session', async (req, res) => {
 
 // Stripe webhook endpoint
 router.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ message: 'Payment system not configured.' });
+  }
+  
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
   let event;
   try {
@@ -298,6 +310,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), (req, res) =>
 
 // Download paid file after payment with forced download
 router.get('/download-paid/:session_id', async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ message: 'Payment system not configured. Please contact support.' });
+  }
+  
   const { session_id } = req.params;
   try {
     const session = await stripe.checkout.sessions.retrieve(session_id);
