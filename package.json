@@ -11,7 +11,7 @@
     "serve": "http-server -p 3000 -o"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": "20.x"
   },
   "dependencies": {
     "axios": "^1.13.3",

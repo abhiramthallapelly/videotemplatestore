@@ -1,0 +1,55 @@
+January 27, 2026 at 8:18 PM
+failed
+cad3b13
+Saved progress at the end of the loop Replit-Commit-Author: Agent Replit-Commit-Session-Id: 8ca16b89-e228-4641-96d6-0ac59e7d3500 Replit-Commit-Checkpoint-Type: full_checkpoint Replit-Commit-Event-Id: cbf7a8ec-f21b-4ae9-98a7-35e0e67c4eca Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/2221a5e9-7acc-424c-a86b-e409caad411f/8ca16b89-e228-4641-96d6-0ac59e7d3500/N5UkyWz Replit-Helium-Checkpoint-Created: true
+
+Rollback
+Exited with status 1 while running your code.
+Read our docs for common ways to troubleshoot your deploy.
+
+All logs
+Search
+Search
+
+Live tail
+GMT+5:30
+
+
+
+==> Downloading cache...
+==> Cloning from https://github.com/abhiramthallapelly/freelancing-editing-website
+==> Checking out commit cad3b13bff19fa9d6d69c79b9762f98dd1d77aca in branch main
+==> Downloaded 101MB in 4s. Extraction took 3s.
+==> Requesting Node.js version >=14.0.0
+==> Using Node.js version 25.5.0 via /opt/render/project/src/package.json
+==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+==> Running build command 'npm run build'...
+> video-editing-store@1.0.0 build
+> node build.js
+🔨 Starting build process...
+📦 Step 1: Root dependencies should already be installed
+📦 Step 2: Installing backend dependencies...
+added 356 packages, and audited 357 packages in 7s
+54 packages are looking for funding
+  run `npm fund` for details
+11 vulnerabilities (2 moderate, 9 high)
+To address issues that do not require attention, run:
+  npm audit fix
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+Run `npm audit` for details.
+✅ Backend dependencies installed successfully
+✅ Build completed successfully
+==> Uploading build...
+==> Uploaded in 5.7s. Compression took 2.9s
+==> Build successful 🎉
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> Deploying...
+==> Running 'npm start'
+> video-editing-store@1.0.0 start
+> node ./backend/server.js
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+==> Running 'npm start'
+> video-editing-store@1.0.0 start
+> node ./backend/server.js

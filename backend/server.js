@@ -1,3 +1,16 @@
+// 🚀 FIRST: Global error handlers and startup logging
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', err => {
+  console.error('❌ Uncaught Exception:', err);
+  process.exit(1);
+});
+
+console.log('🏁 Server process starting...');
+
+// Then load environment
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 const express = require('express');
