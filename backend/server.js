@@ -108,15 +108,29 @@ app.get('/', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', err => {
+  console.error('❌ Uncaught Exception:', err);
+  process.exit(1);
+});
+
 async function startServer() {
+  if (!process.env.DATABASE_URL) {
+    console.error('❌ CRITICAL ERROR: DATABASE_URL is not defined in environment variables.');
+    process.exit(1);
+  }
+
   try {
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Server LIVE on 0.0.0.0:${PORT}`);
+      console.log(`🚀 Server LIVE on port ${PORT}`);
       initEmailTransporter();
     });
 
     server.on('error', err => {
-      console.error('SERVER ERROR:', err.message);
+      console.error('❌ SERVER ERROR:', err.message);
       if (err.code === 'EADDRINUSE') {
         console.log(`Port ${PORT} is already in use. Retrying on another port...`);
         setTimeout(() => {
@@ -125,25 +139,14 @@ async function startServer() {
         }, 1000);
       }
     });
-  } catch (err) {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-  }
 
-  try {
+    // Test DB connection immediately
     await pool.query('SELECT 1');
-    console.log('✅ PostgreSQL connected');
+    console.log('✅ PostgreSQL connection verified');
   } catch (err) {
-    console.error('⚠️ PostgreSQL connection issue:', err.message);
+    console.error('❌ Failed to start server:', err);
+    process.exit(1);
   }
 }
 
 startServer();
-
-process.on('unhandledRejection', err => {
-  console.error('Unhandled Rejection:', err);
-});
-
-process.on('uncaughtException', err => {
-  console.error('Uncaught Exception:', err);
-});
