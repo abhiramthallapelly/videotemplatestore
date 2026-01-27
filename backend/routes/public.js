@@ -28,16 +28,14 @@ const getValidOrigin = (req) => {
 // List all projects/templates (public)
 router.get('/projects', async (req, res) => {
   try {
-    const projects = await Project.find()
-      .select('title description is_free price createdAt file_path image_path')
-      .sort({ createdAt: -1 });
+    const projects = await Project.find();
     res.json(projects.map(p => ({
-      id: p._id,
+      id: p.id,
       title: p.title,
       description: p.description,
       is_free: p.is_free,
       price: p.price,
-      created_at: p.createdAt,
+      created_at: p.created_at,
       file_path: p.file_path,
       image_path: p.image_path
     })));
@@ -51,21 +49,18 @@ router.get('/projects', async (req, res) => {
 // List all templates specifically
 router.get('/templates', async (req, res) => {
   try {
-    const projects = await Project.find({
-      $or: [
-        { title: { $regex: 'template', $options: 'i' } },
-        { description: { $regex: 'template', $options: 'i' } }
-      ]
-    })
-      .select('title description is_free price createdAt file_path image_path')
-      .sort({ createdAt: -1 });
-    res.json(projects.map(p => ({
-      id: p._id,
+    const projects = await Project.find();
+    const templates = projects.filter(p => 
+      (p.title && p.title.toLowerCase().includes('template')) || 
+      (p.description && p.description.toLowerCase().includes('template'))
+    );
+    res.json(templates.map(p => ({
+      id: p.id,
       title: p.title,
       description: p.description,
       is_free: p.is_free,
       price: p.price,
-      created_at: p.createdAt,
+      created_at: p.created_at,
       file_path: p.file_path,
       image_path: p.image_path
     })));
@@ -380,7 +375,7 @@ router.post('/contact', validateContact, async (req, res) => {
         message: message.trim(),
         subject: subject ? subject.trim() : null
       });
-      console.log('Contact saved to database with ID:', contact._id);
+      console.log('Contact saved to database with ID:', contact.id);
     } catch (dbErr) {
       console.error('Database error:', dbErr);
       // Continue even if database fails
@@ -520,7 +515,7 @@ router.post('/review', validateReview, async (req, res) => {
     // Save to MongoDB
     try {
       const review = await Review.create(reviewData);
-      console.log('Review saved to database with ID:', review._id);
+      console.log('Review saved to database with ID:', review.id);
     } catch (dbErr) {
       console.error('Database error:', dbErr);
       // Continue even if database fails, try Google Sheets
@@ -577,7 +572,7 @@ router.get('/reviews', async (req, res) => {
 
     // Format reviews
     const formattedReviews = reviews.map(row => ({
-      id: row._id,
+      id: row.id,
       name: row.name,
       email: row.email, // Can be filtered out in production if needed
       message: row.message,
