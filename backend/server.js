@@ -10,8 +10,13 @@ process.on('uncaughtException', err => {
 
 console.log('🏁 Server process starting...');
 
-// Then load environment
-require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+// Verify module presence
+try {
+  require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+  console.log('✅ Dotenv loaded');
+} catch (e) {
+  console.error('❌ Dotenv load failed:', e.message);
+}
 
 const express = require('express');
 const cors = require('cors');
