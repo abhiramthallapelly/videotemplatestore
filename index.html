@@ -1121,11 +1121,12 @@
     submitBtn.disabled = true;
 
     try {
+      const ratingValue = this.querySelector('input[name="rating"]:checked')?.value;
       const formData = {
         name: this.reviewName.value.trim(),
-        email: this.reviewEmail.value.trim(),
+        email: this.reviewEmail.value.trim() || undefined,
         message: this.reviewMessage.value.trim(),
-        rating: this.querySelector('input[name="rating"]:checked')?.value || 0
+        rating: ratingValue ? parseInt(ratingValue, 10) : 0
       };
 
       // Validation

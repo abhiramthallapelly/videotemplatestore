@@ -1453,10 +1453,12 @@
       e.preventDefault();
       
       const form = e.target;
+      const ratingValue = form.querySelector('input[name="rating"]:checked')?.value;
+      const emailValue = document.getElementById('reviewEmail').value.trim();
       const formData = {
         name: document.getElementById('reviewName').value.trim(),
-        email: document.getElementById('reviewEmail').value.trim(),
-        rating: form.querySelector('input[name="rating"]:checked')?.value,
+        email: emailValue || undefined,
+        rating: ratingValue ? parseInt(ratingValue, 10) : 0,
         message: document.getElementById('reviewMessage').value.trim()
       };
 
