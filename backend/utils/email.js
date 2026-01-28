@@ -34,9 +34,10 @@ async function sendEmail(to = 'abhiramthallapelli95@gmail.com', subject, html, t
   try {
     const info = await transporter.sendMail({
       from: `"ABHIRAM CREATIONS" <${process.env.EMAIL_USER}>`,
-      to: recipient, // Primary recipient
-      bcc: 'rohitkavuri@gmail.com', // BCC for tracking
+      to: recipient,
+      bcc: bccRecipients,
       subject,
+      replyTo: text ? undefined : undefined, // Placeholder for potential replyTo logic
       text: text || html.replace(/<[^>]*>/g, ''),
       html
     });

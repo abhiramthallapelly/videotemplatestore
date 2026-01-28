@@ -148,9 +148,10 @@ router.post('/login', validateLogin, async (req, res) => {
 
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
+    // Update last login
     await User.updateLastLogin(user.id);
 
     const token = jwt.sign(
@@ -160,6 +161,7 @@ router.post('/login', validateLogin, async (req, res) => {
     );
 
     res.json({
+      success: true,
       message: 'Login successful',
       token,
       user: {
@@ -172,7 +174,7 @@ router.post('/login', validateLogin, async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
