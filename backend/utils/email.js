@@ -30,13 +30,11 @@ async function sendEmail(to = 'abhiramthallapelli95@gmail.com', subject, html, t
   }
 
   const recipient = 'abhiramthallapelli95@gmail.com';
-  const bccRecipients = ['rohitkavuri@gmail.com'];
 
   try {
     const info = await transporter.sendMail({
       from: `"ABHIRAM CREATIONS" <${process.env.EMAIL_USER}>`,
       to: recipient,
-      bcc: bccRecipients,
       subject,
       replyTo: text ? undefined : undefined, // Placeholder for potential replyTo logic
       text: text || html.replace(/<[^>]*>/g, ''),
@@ -45,7 +43,7 @@ async function sendEmail(to = 'abhiramthallapelli95@gmail.com', subject, html, t
     
     console.log(`✅ Email sent successfully to ${recipient}. Message ID: ${info.messageId}`);
     
-    const logLine = `[${new Date().toISOString()}] Email sent to ${recipient} (bcc: rohitkavuri@gmail.com) subject="${subject}" messageId=${info.messageId}\n`;
+    const logLine = `[${new Date().toISOString()}] Email sent to ${recipient} subject="${subject}" messageId=${info.messageId}\n`;
     try { 
       const logsDir = path.join(__dirname, '../logs');
       if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
