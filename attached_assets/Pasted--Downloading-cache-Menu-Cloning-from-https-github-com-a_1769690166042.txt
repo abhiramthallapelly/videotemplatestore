@@ -1,0 +1,65 @@
+==> Downloading cache...
+Menu
+==> Cloning from https://github.com/abhiramthallapelly/videotemplatestore
+==> Checking out commit f51d6d8ded7315673b9ddd097d43151a01aab474 in branch main
+==> Downloaded 156MB in 6s. Extraction took 3s.
+==> Requesting Node.js version 20.x
+==> Using Node.js version 20.20.0 via /opt/render/project/src/package.json
+==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+==> Running build command 'npm run build'...
+> video-editing-store@1.0.0 build
+> node build.js
+🔨 Starting build process...
+📦 Ensuring root dependencies are installed...
+> video-editing-store@1.0.0 postinstall
+> echo 'Cleanup complete'
+Cleanup complete
+up to date, audited 435 packages in 881ms
+52 packages are looking for funding
+  run `npm fund` for details
+6 vulnerabilities (1 moderate, 5 high)
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+Run `npm audit` for details.
+✅ Dependencies installed successfully
+✅ Build completed successfully
+==> Uploading build...
+==> Uploaded in 4.6s. Compression took 1.7s
+==> Build successful 🎉
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> Running 'npm start'
+> video-editing-store@1.0.0 start
+> node ./backend/server.js
+🏁 Server process starting...
+✅ Dotenv loaded
+Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable Google Sign-In.
+🚀 Server LIVE on port 10000
+127.0.0.1 - - [29/Jan/2026:12:22:31 +0000] "HEAD / HTTP/1.1" 200 33260 "-" "Go-http-client/1.1"
+✅ PostgreSQL connected
+✅ PostgreSQL connection verified
+==> Your service is live 🎉
+==> 
+==> ///////////////////////////////////////////////////////////
+==> 
+==> Available at your primary URL https://freelancing-editing-website-1.onrender.com
+==> 
+==> ///////////////////////////////////////////////////////////
+10.20.69.67 - - [29/Jan/2026:12:22:37 +0000] "GET / HTTP/1.1" 200 - "-" "Go-http-client/2.0"
+10.21.45.130 - - [29/Jan/2026:12:22:44 +0000] "GET / HTTP/1.1" 200 - "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+10.20.69.67 - - [29/Jan/2026:12:22:44 +0000] "GET /x%20logo.webp HTTP/1.1" 200 7464 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+10.20.69.67 - - [29/Jan/2026:12:22:44 +0000] "GET /instaimg.webp HTTP/1.1" 200 7310 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+10.17.222.2 - - [29/Jan/2026:12:22:45 +0000] "GET /youtubelogo.webp HTTP/1.1" 200 7476 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+Contact saved to database with ID: 1
+10.21.45.130 - - [29/Jan/2026:12:23:26 +0000] "POST /api/public/contact HTTP/1.1" - - "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+❌ Email send error to abhiramthallapelli95@gmail.com: Connection timeout
+❌ Failed to send contact email notification
+New Contact Form Submission: {
+  name: 'manii',
+  email: 'abhiramdevops29@gmail.com',
+  message: 'helosodfhoa',
+  subject: undefined,
+  timestamp: '2026-01-29T12:24:56.600Z'
+}
+==> Detected service running on port 10000
+==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
